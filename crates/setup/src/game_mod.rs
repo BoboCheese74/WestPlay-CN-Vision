@@ -138,8 +138,13 @@ struct WindowScreen {
 /// that screen"; 2026-11-16: "all four busses"). Each part's glass shows its own part of the window
 /// (`westplay_shared::glass`): the image covers the window whole, and the page goes on each bus's glass
 /// (`westplay_shared::page_place`).
-const WINDOW_SCREENS: &[WindowScreen] =
-    &[WindowScreen { layout: "ob-gps", shown: ShownPart { left: 0.0, right: 1.0, top: 0.0, bottom: 1.0 } }];
+const WINDOW_SCREENS: &[WindowScreen] = &[
+    WindowScreen { layout: "ob-gps", shown: ShownPart { left: 0.0, right: 1.0, top: 0.0, bottom: 1.0 } },
+    // The Freightliner Cascadia's digital dash and the Western Star 57X: their scripts are bare windows whose
+    // `id: 100` group is a button cluster, not the display, so the whole of the window is WestPlay's image.
+    WindowScreen { layout: "cascadia", shown: ShownPart { left: 0.0, right: 1.0, top: 0.0, bottom: 1.0 } },
+    WindowScreen { layout: "westernstar-57x", shown: ShownPart { left: 0.0, right: 1.0, top: 0.0, bottom: 1.0 } },
+];
 
 /// The 7" Scania's screen drawn sharp. The interiors naming no GPS screen of their own (all but the Smart
 /// Dash's) get the stock one at the game's default size: a 256 x 256 target (the 7" model's `gps.tobj` piece
@@ -543,8 +548,9 @@ pub fn install(bytes: &[u8], mod_dir: &Path, kind: Kind) -> std::io::Result<Path
 
 /// A layout's screen texture's name: `screen_daf_2021`.
 /// The layout of the mod this WestPlay builds, bumped whenever a mod made by an earlier WestPlay
-/// wouldn't fit this one.
-pub const LAYOUT: u32 = 22;
+/// wouldn't fit this one. 23: the American Truck Simulator screens (bronco-24, f150-2023, cascadia,
+/// vnl, vnl-new, westernstar-57x) join the layouts.
+pub const LAYOUT: u32 = 23;
 
 /// What [`build`] writes into the mod to say which layout made it ([`LAYOUT`]).
 const LAYOUT_FILE: &str = "westplay/layout.txt";

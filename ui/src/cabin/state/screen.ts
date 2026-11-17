@@ -19,6 +19,12 @@ export const SCREEN_LAYOUT_IDS = [
   'scania-touring',
   'man-lions-24',
   'man-tgx-2020',
+  'bronco-24',
+  'f150-2023',
+  'cascadia',
+  'vnl',
+  'vnl-new',
+  'westernstar-57x',
 ] as const
 
 export type ScreenLayoutId = (typeof SCREEN_LAYOUT_IDS)[number]
@@ -53,6 +59,12 @@ const PAGE_HEIGHTS: Partial<Record<ScreenLayoutId, number>> = {
   'scania-touring': 730,
   'man-lions-24': 784,
   'man-tgx-2020': 720,
+  'bronco-24': 800,
+  'f150-2023': 800,
+  cascadia: 480,
+  vnl: 768,
+  'vnl-new': 720,
+  'westernstar-57x': 480,
 }
 
 /** Frame pixels (SCREEN_WIDTH x SCREEN_HEIGHT, as a screen's script and the truck's strip are measured) as the
