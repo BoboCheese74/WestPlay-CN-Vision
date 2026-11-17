@@ -17,6 +17,7 @@ mod game_settings;
 mod gpu;
 pub mod graphics;
 mod handover;
+mod lan;
 mod lyrics;
 mod map_process;
 pub mod maps;
@@ -86,11 +87,21 @@ pub enum Content {
     },
 }
 
+#[derive(Clone, Debug, Default, serde::Serialize)]
+#[serde(tag = "state", rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum MobileWebUiStatus {
+    #[default]
+    Off,
+    Running { pairing_urls: Vec<String> },
+    Error { message: String },
+}
+
 /// Host health, reported about once per second.
 #[derive(Clone, Debug, Default, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Status {
     pub webview_version: String,
+    pub mobile_web_ui: MobileWebUiStatus,
     /// The GPU frames are handed to the game on (the game's, once it runs).
     pub adapter: Option<String>,
     /// The GPU the cab is drawn on, and the game's (`None` until the game runs).
@@ -450,6 +461,12 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
         height: config.height,
     };
     let mut pointer = Pointer::new(config.width, config.height);
+    let mut mobile_enabled = false;
+    let mut lan: Option<lan::Lan> = None;
+    let mut tap = None;
+    let mut remote_pointer: Option<Pointer> = None;
+    let mut remote_session = 0;
+    let mut remote_place = page_place;
     // The screen's cursor, drawn into the frames the game takes (cursor.rs), and whether the page was last told the
     // host draws it (`None`: not told since it loaded).
     let mut cursor = cursor::Cursor::new(Instant::now());
@@ -602,6 +619,9 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
                 squeeze: page_place.rows as f32 / page_place.height.max(1) as f32,
             };
             pipeline.capture.flush(cursor.look(Instant::now()), placement);
+            if let Some(tap) = &tap {
+                pipeline.capture.mirror(tap);
+            }
             // Dark over something light, light over something dark: as the frame shows what's under it, whatever
             // draws it (owner 2026-11-09: "it shouldn't care what lies under it, app or not").
             if let Some(light) = pipeline.capture.light_under()
@@ -796,6 +816,7 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
             };
             if needs_rebuild {
                 host.frame_generation.store(0, Ordering::Release);
+                tap = None;
                 pipeline = None;
                 generation_counter = generation_counter.wrapping_add(1);
                 let generation = ((std::process::id() & 0x00ff_ffff) << 8) | (generation_counter & 0xff);
@@ -908,6 +929,25 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
 
         if applied_settings != Some(config.settings.generation()) {
             applied_settings = Some(config.settings.generation());
+            let enabled = config.settings.get().mobile_web_ui;
+            if mobile_enabled != enabled {
+                mobile_enabled = enabled;
+                status.mobile_web_ui = if enabled {
+                    match lan::Lan::start(config.width, config.height) {
+                        Ok(server) => {
+                            let pairing_urls = server.pairing_urls();
+                            lan = Some(server);
+                            MobileWebUiStatus::Running { pairing_urls }
+                        }
+                        Err(error) => MobileWebUiStatus::Error { message: error.to_string() },
+                    }
+                } else {
+                    lan = None;
+                    tap = None;
+                    MobileWebUiStatus::Off
+                };
+                (config.on_status)(&status);
+            }
             // The player may have chosen another GPU: the list again too (an external GPU plugged in).
             let graphics = config.settings.get().graphics;
             if graphics.gpu != chosen_gpu {
@@ -933,6 +973,31 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
             }
             let _ = webview.post_json(&settings_message(&config.settings.get()));
         }
+        if let Some(server) = &lan {
+            let error = if !server.running() {
+                Some("The LAN listener stopped.".into())
+            } else if tap.as_ref().is_some_and(lan::Tap::failed) {
+                Some("The LAN capture worker stopped.".into())
+            } else if let Some(pipeline) = &pipeline
+                && tap.is_none()
+            {
+                match lan::Tap::new(&pipeline.gpu, config.width, config.height, server.shared()) {
+                    Ok(created) => {
+                        tap = Some(created);
+                        None
+                    }
+                    Err(error) => Some(format!("LAN capture: {error}")),
+                }
+            } else {
+                None
+            };
+            if let Some(message) = error {
+                lan = None;
+                tap = None;
+                status.mobile_web_ui = MobileWebUiStatus::Error { message };
+                (config.on_status)(&status);
+            }
+        }
         // Over Safari's tab shown, the mouse is its page's; over a streaming site's page (the web app), that
         // page's (no covers and no zoom of its own: the wheel's zoom goes to the page itself, below).
         let web = safari.as_ref().and_then(|browser| {
@@ -955,7 +1020,8 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
                 // videos unopened; owner 2026-11-13). The coordinates are the page's CSS pixels, hence `zoom`.
             })
         });
-        let mouse = pointer.update(&bridge.bridge().plugin.pointer, &webview, web.or(placed), false);
+        let web = web.or(placed);
+        let mouse = pointer.update(&bridge.bridge().plugin.pointer, &webview, web, false);
         // The right Ctrl with the wheel over a site's page: its own pixels larger or smaller, the player's own
         // zoom on top of the fit (`webapp::WebApp::zoom_by`; only while the right Ctrl is held: the left one is
         // the game's, with the wheel, for the gearbox).
@@ -965,6 +1031,28 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
             app.zoom_by(mouse.zoom);
         }
         cursor.follow(mouse, Instant::now());
+        // Use the same STA and WebView route as the in-game pointer, with a separate gesture state.
+        if let Some(server) = &lan {
+            let pointer = remote_pointer.get_or_insert_with(|| Pointer::new(page_place.width, page_place.height));
+            let session = server.session();
+            if session != remote_session || remote_place != page_place {
+                pointer.remote_touch(lan::Phase::Cancel, 0.0, 0.0, &webview, web);
+                pointer.set_size(page_place.width, page_place.height);
+                remote_session = session;
+                remote_place = page_place;
+            }
+            for _ in 0..lan::Lan::max_touch_batch() {
+                let Some(touch) = server.next_touch() else { break };
+                if touch.session == session
+                    && server.session() == session
+                    && let Some((x, y)) = touch.on_page(config.width, config.height, page_place)
+                {
+                    pointer.remote_touch(touch.phase, x, y, &webview, web);
+                }
+            }
+        } else if let Some(mut pointer) = remote_pointer.take() {
+            pointer.remote_touch(lan::Phase::Cancel, 0.0, 0.0, &webview, web);
+        }
         // The player's keybinds pressed (and the volume keys held) in the game: the page acts on each.
         for keybind in Keybind::ALL {
             let plugin = &bridge.bridge().plugin;

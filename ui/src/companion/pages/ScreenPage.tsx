@@ -1,7 +1,8 @@
+import { useContext, useState } from 'react'
 import { GAME_KINDS, GAME_NAMES } from '../setup'
 import { setWestplayOpen } from '../useHostStatus'
 import { Group, Note, Panel, Row, Status, Switch, Tick } from '../room/parts'
-import { banner } from '../room/room'
+import { banner, RoomText } from '../room/room'
 import { GLOW, useScreenAt } from '../room/screen'
 import { type PageProps, screenState } from './page'
 import type { CoachSpeakers } from '../useSettings'
@@ -94,10 +95,94 @@ export function ScreenPage({ status, settings, setup, cw }: PageProps) {
         </Note>
       )}
       <DisplayFirst settings={settings} cw={cw} />
+      <MobileWebUi status={status} settings={settings} />
       <CoachChooser status={status} settings={settings} cw={cw} />
       <GpuChooser status={status} settings={settings} cw={cw} />
       {status?.error && <Note tone="bad">{status.error}</Note>}
     </Panel>
+  )
+}
+
+function MobileWebUi({ status, settings: state }: Pick<PageProps, 'status' | 'settings'>) {
+  const { settings, update, error } = state
+  const zh = useContext(RoomText).locale.startsWith('zh')
+  const [copiedUrl, setCopiedUrl] = useState('')
+  const [copyFailedUrl, setCopyFailedUrl] = useState('')
+  if (!settings) return null
+  const title = zh ? '手机远程车机（Mobile WebUI）' : 'Mobile WebUI'
+  const enabled = settings.mobileWebUi
+  const service = status?.mobileWebUi
+  const running = enabled && service?.state === 'running'
+  const urls = running ? service.pairingUrls : []
+  const busy = enabled && (!service || service.state === 'off')
+  return (
+    <Group place={9}>
+      <Row
+        title={title}
+        detail={
+          zh
+            ? '通过同一可信局域网内的手机浏览器查看和触控车机。'
+            : 'View and control the cab in a phone browser on a trusted local network.'
+        }
+        wrap
+        accessory={<Switch on={enabled} label={title} change={(on) => void update({ ...settings, mobileWebUi: on })} />}
+      />
+      {busy && <Note>{zh ? '正在启动局域网服务…' : 'Starting the LAN service…'}</Note>}
+      {enabled && service?.state === 'error' && (
+        <Note tone="bad">
+          {zh
+            ? '局域网服务不可用（TCP 8765）。如端口被占用，请释放端口后关闭再开启。'
+            : 'LAN service unavailable (TCP 8765). If the port is in use, free it and turn the switch off and on.'}{' '}
+          {service.message}
+        </Note>
+      )}
+      {running && urls.length === 0 && (
+        <Note>
+          {zh
+            ? '暂未找到可访问的局域网 IPv4 地址。连接 Wi-Fi 后关闭再开启。'
+            : 'No private IPv4 address found. Connect to Wi-Fi and turn the switch off and on.'}
+        </Note>
+      )}
+      {urls.map((url) => (
+        <div key={url}>
+          <Row
+            title={new URL(url).origin}
+            detail={
+              copiedUrl === url
+                ? zh
+                  ? '已复制配对链接'
+                  : 'Pairing link copied'
+                : zh
+                  ? '点击复制配对链接'
+                  : 'Click to copy the pairing link'
+            }
+            onClick={() => {
+              setCopyFailedUrl('')
+              navigator.clipboard.writeText(url).then(
+                () => setCopiedUrl(url),
+                () => setCopyFailedUrl(url),
+              )
+            }}
+          />
+          {copyFailedUrl === url && (
+            <input
+              aria-label={zh ? '配对链接' : 'Pairing link'}
+              readOnly
+              value={url}
+              onFocus={(event) => event.target.select()}
+            />
+          )}
+        </div>
+      ))}
+      {urls.length > 0 && (
+        <Note>
+          {zh
+            ? '复制与手机同网的地址，在手机上打开完整配对链接。请勿分享链接。'
+            : 'Copy the link for the network your phone is on and open it on your phone. Keep the link private.'}
+        </Note>
+      )}
+      {error && <Note tone="bad">{error}</Note>}
+    </Group>
   )
 }
 

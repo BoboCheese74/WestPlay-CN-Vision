@@ -35,6 +35,8 @@ pub struct Settings {
     pub sound: SoundSettings,
     #[serde(deserialize_with = "lenient")]
     pub map: MapSettings,
+    #[serde(deserialize_with = "lenient")]
+    pub mobile_web_ui: bool,
     /// The language WestPlay speaks, in the cab and the companion (the companion's Setup page): one of the
     /// game's, by its code (`tr_tr`), or `None`: the game's own (owner 2026-11-03).
     #[serde(deserialize_with = "lenient")]
@@ -557,6 +559,14 @@ impl SharedSettings {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn mobile_webui_is_opt_in_and_persists() {
+        assert!(!super::parse("{}").unwrap().mobile_web_ui);
+        assert!(!super::parse(r#"{"mobileWebUi":"true"}"#).unwrap().mobile_web_ui);
+        let enabled = super::Settings { mobile_web_ui: true, ..Default::default() };
+        assert!(super::parse(&super::to_json(&enabled)).unwrap().mobile_web_ui);
+    }
+
     use super::*;
 
     #[test]
@@ -597,6 +607,7 @@ mod tests {
                 spatial: false,
             },
             map: MapSettings { buildings: false, roads: false, fast: true },
+            mobile_web_ui: true,
             language: LanguageCode::new("pt_br"),
         };
         let json = to_json(&settings);

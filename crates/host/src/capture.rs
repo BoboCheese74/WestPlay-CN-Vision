@@ -233,6 +233,16 @@ impl Capture {
         }
     }
 
+    /// Samples the already-composited frame, including the last one when the page is idle.
+    pub fn mirror(&self, tap: &crate::lan::Tap) {
+        if !self.broken()
+            && self.frames.load(Ordering::Relaxed) != 0
+            && tap.try_capture(&self.context, &self.shared) == Some(Lock::Abandoned)
+        {
+            self.abandoned.store(true, Ordering::Relaxed);
+        }
+    }
+
     /// A frame went out, with `cursor` on it.
     fn sent(&self, cursor: Option<Look>, now: Instant) {
         self.bridge.bridge().host.frame_seq.fetch_add(1, Ordering::Release);
