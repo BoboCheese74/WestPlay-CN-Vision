@@ -14,8 +14,7 @@ import type { Settings } from './useSettings'
  *   found, ETS2 alone set up (as one who had WestPlay before ATS was supported).
  * - `?game=off|on|live|unsupported`: the game not running, running (the cab not on the screen), the screen live, or
  *   the player in a truck WestPlay doesn't show in.
- * - `?map=building|ready|waiting|stopped|memory|failed`: the map's state (`building` runs to `ready`; `stopped`: its
- *   preparation ended by the game starting).
+ * - `?map=building|ready|waiting|failed`: the map's state (`building` runs to `ready`).
  * - `?update`: an update found (its sheet offers it; installing it downloads, then stays installing).
  * - `?custom`: some wallpapers and an icon set of the player's (adding gives more, with a file left out).
  * - `?leftOut`: the played profile's map made without a map mod it couldn't read.
@@ -80,10 +79,10 @@ let settings: Settings = {
     brightnessDown: { key: 0x34, withInteractionKey: true },
     brightnessUp: { key: 0x35, withInteractionKey: true },
   },
-  screen: { truckStrip: 'auto' },
+  screen: { truckStrip: 'auto', refreshRate: '60', tabletFirst: false, performanceMode: false },
   look: { wallpaper: null, iconSet: null, iconStyle: 'auto' },
-  graphics: { gpu: null },
   sound: { equalizer: { bass: 0, mid: 0, treble: 0 }, custom: false, coach: 'driver' },
+  graphics: { gpu: null },
   map: { buildings: true, roads: true, fast: false },
   language: null,
 }
@@ -96,8 +95,8 @@ const custom: Customizations = query.has('custom')
         {
           name: 'Sample icons',
           icons: {
-            spotify: { light: 'icons/westplay/spotify.dark.svg', dark: 'icons/westplay/spotify.dark.svg' },
-            youtube: { light: null, dark: 'icons/westplay/youtube.light.svg' },
+            spotify: { light: 'icons/westplay/netease.dark.svg', dark: 'icons/westplay/netease.dark.svg' },
+            youtube: { light: null, dark: 'icons/westplay/bilibili.light.svg' },
           },
         },
       ],
@@ -105,8 +104,9 @@ const custom: Customizations = query.has('custom')
   : { wallpapers: [], iconSets: [] }
 
 const accounts = {
-  youtube: true as boolean | null,
-  spotify: false as boolean | null,
+  bilibili: true as boolean | null,
+  netease: false as boolean | null,
+  qqMusic: false as boolean | null,
   appleMusic: false as boolean | null,
   signingIn: '',
 }
@@ -152,16 +152,21 @@ function status(): HostStatus {
     screenDrawing: live,
     // `?game=unsupported`: in a truck WestPlay doesn't show in.
     truckSupported: gameState === 'unsupported' ? false : live ? true : null,
-    // `?coach=26`: in a coach whose passengers' set plays through 26 speakers.
-    coachSpeakers: live && query.has('coach') ? Number(query.get('coach')) : null,
+    coachSpeakers: null,
     gameElevated: gameState !== 'off' && query.has('elevated'),
+  pluginOutdated: gameState === 'off' && query.has('outdated'),
     westplayOpen: live ? westplayOpen : null,
-    youtubeSignedIn: accounts.youtube,
-    youtubeSigningIn: accounts.signingIn === 'youtube',
-    spotifySignedIn: accounts.spotify,
-    spotifySigningIn: accounts.signingIn === 'spotify',
+    youtubeSignedIn: true,
+    youtubeSigningIn: false,
+    spotifySignedIn: false,
+    spotifySigningIn: false,
     appleMusicSignedIn: accounts.appleMusic,
     appleMusicSigningIn: accounts.signingIn === 'appleMusic',
+    webLogins: {
+      bilibili: { signedIn: accounts.bilibili, signingIn: accounts.signingIn === 'bilibili' },
+      netease: { signedIn: accounts.netease, signingIn: accounts.signingIn === 'netease' },
+      qqMusic: { signedIn: accounts.qqMusic, signingIn: accounts.signingIn === 'qqMusic' },
+    },
     map,
     mapFolder: null,
     mapBuilt: map.state === 'ready' ? Math.floor(Date.now() / 1000) - 3 * 86_400 : null,
@@ -221,8 +226,8 @@ function setLook(change: Partial<Settings['look']>) {
 
 const later = <T>(value: T, ms = 300) => new Promise<T>((resolve) => setTimeout(() => resolve(value), ms))
 
-/** A sign-in: Google's, Spotify's or Apple's window "open" a moment, then signed in. */
-function signIn(service: 'youtube' | 'spotify' | 'appleMusic') {
+/** A sign-in: the site's or Apple Music's window "open" a moment, then signed in. */
+function signIn(service: 'bilibili' | 'netease' | 'qqMusic' | 'appleMusic') {
   accounts.signingIn = service
   emit('host-status', status())
   setTimeout(() => {
@@ -345,7 +350,13 @@ export function answer(command: string, args?: Record<string, unknown>): Promise
       settings = args?.settings as Settings
       emit('settings-changed', settings)
       return later(settings, 60)
-    case 'set_westplay_open':
+    case 'quit_app':
+    // No window to close in the preview: the page is told it went through.
+    return later(undefined, 200)
+  case 'quit_shown':
+  case 'quit_hidden':
+    return later(undefined, 20)
+  case 'set_westplay_open':
       westplayOpen = Boolean(args?.open)
       return later(undefined, 200)
     case 'prepare_maps_again':
@@ -357,11 +368,14 @@ export function answer(command: string, args?: Record<string, unknown>): Promise
     case 'spotify_check':
     case 'apple_music_check':
       return later(undefined)
-    case 'youtube_sign_in':
-      signIn('youtube')
+    case 'bilibili_sign_in':
+      signIn('bilibili')
       return later(undefined)
-    case 'spotify_sign_in':
-      signIn('spotify')
+    case 'netease_sign_in':
+      signIn('netease')
+      return later(undefined)
+    case 'qq_music_sign_in':
+      signIn('qqMusic')
       return later(undefined)
     case 'apple_music_sign_in':
       signIn('appleMusic')
@@ -382,15 +396,21 @@ export function answer(command: string, args?: Record<string, unknown>): Promise
       return later(undefined)
     case 'app_log_place':
       return later('C:\\Users\\Player\\Documents\\WestPlay\\logs\\app.log')
-    case 'youtube_sign_out':
+    case 'bilibili_sign_out':
       setTimeout(() => {
-        accounts.youtube = false
+        accounts.bilibili = false
         emit('host-status', status())
       }, 1200)
       return later(undefined)
-    case 'spotify_sign_out':
+    case 'netease_sign_out':
       setTimeout(() => {
-        accounts.spotify = false
+        accounts.netease = false
+        emit('host-status', status())
+      }, 1200)
+      return later(undefined)
+    case 'qq_music_sign_out':
+      setTimeout(() => {
+        accounts.qqMusic = false
         emit('host-status', status())
       }, 1200)
       return later(undefined)
@@ -428,7 +448,7 @@ export function answer(command: string, args?: Record<string, unknown>): Promise
     case 'add_icon_set': {
       setTimeout(() => emit('customize-adding', null), 400)
       const name = `Icons ${custom.iconSets.length + 1}`
-      const music = 'icons/westplay/music.dark.svg'
+      const music = 'icons/westplay/qq-music.dark.svg'
       custom.iconSets.push({ name, icons: { music: { light: music, dark: music } } })
       return later<Added>({ added: [name], problems: [{ file: 'Spotify Logo.png', reason: 'unknownName' }] }, 2400)
     }

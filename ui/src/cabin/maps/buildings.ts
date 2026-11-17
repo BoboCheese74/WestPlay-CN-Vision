@@ -33,3 +33,12 @@ export function canopiesOver(canopies: readonly Canopy[], point: [number, number
 export function buildingFilter(hidden: readonly number[]): FilterSpecification | null {
   return hidden.length === 0 ? null : ['!', ['in', ['get', 'id'], ['literal', [...hidden]]]]
 }
+
+/**
+ * Whether the layer is shown at all, given the performance mode (Settings › Display & Performance): the mode
+ * takes the raised buildings away — the map's heaviest drawing, every building in view redrawn each frame
+ * (`maps/liveMap.ts` puts the layer away with this).
+ */
+export function buildingsVisibility(performanceMode: boolean): 'visible' | 'none' {
+  return performanceMode ? 'none' : 'visible'
+}

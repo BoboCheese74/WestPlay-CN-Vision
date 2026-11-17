@@ -48,7 +48,7 @@ export function TruckScreen({
             <div className="ts-frame">
               <iframe
                 ref={frame}
-                src="/cabin.html?demo&power"
+                src="/cabin-demo.html?power"
                 title="WestPlay"
                 tabIndex={-1}
                 data-ready={ready || undefined}

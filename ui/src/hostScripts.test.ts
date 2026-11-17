@@ -3,6 +3,7 @@ import appleMusic from '../../crates/host/src/apple_music.js?raw'
 import appleMusicSignIn from '../../crates/host/src/apple_music_sign_in.js?raw'
 import cabSound from '../../crates/host/src/cab_sound.js?raw'
 import spotify from '../../crates/host/src/spotify.js?raw'
+import webapp from '../../crates/host/src/webapp.js?raw'
 import youtube from '../../crates/host/src/youtube.js?raw'
 import youtubeMusic from '../../crates/host/src/youtube_music.js?raw'
 
@@ -17,6 +18,9 @@ const AS_RUN: Record<string, string[]> = {
   'YouTube Music': [cabSound, youtubeMusic],
   Spotify: [cabSound, spotify],
   "Apple Music's sign-in": [appleMusicSignIn],
+  // The web app's sites (Bilibili, QQ Music, NetEase Cloud Music, Qingting FM): the truck speakers' script
+  // first too (the site's sound through them, where the browser lets it), then the host's own.
+  'Web app': [cabSound, webapp],
 }
 
 describe("the players' page scripts", () => {

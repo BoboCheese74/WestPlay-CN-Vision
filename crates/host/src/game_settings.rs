@@ -4,7 +4,7 @@
 //! `uset g_cam_steering_value "1.0"`); the profile in use is the one written last. Read again now and then:
 //! a change in the game's menu applies.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime};
 
 /// How far the game turns the interior camera at full lock, at a multiplier of 100% (degrees). The game
@@ -67,23 +67,59 @@ impl CameraSettings {
 /// The settings, read again every [`EVERY`].
 pub struct GameSettings {
     settings: CameraSettings,
+    /// Whether the game's fatigue simulation is on (`uset g_fatigue`): the rest countdown the app shows means
+    /// something only with it (FIXES §69).
+    fatigue: bool,
     read_at: Option<Instant>,
 }
 
 impl GameSettings {
     pub fn new() -> Self {
-        Self { settings: CameraSettings::default(), read_at: None }
+        Self { settings: CameraSettings::default(), fatigue: true, read_at: None }
+    }
+
+    /// Reads the profile again, every [`EVERY`].
+    fn refresh(&mut self) {
+        if self.read_at.is_some_and(|at| at.elapsed() < EVERY) {
+            return;
+        }
+        self.read_at = Some(Instant::now());
+        let Some(profile) = latest_profile_config() else { return };
+        if let Ok(text) = std::fs::read_to_string(&profile) {
+            self.settings = CameraSettings::read(&text);
+        }
+        // The fatigue simulation: the profile's own `config.cfg`, or the game's beside its profiles where the
+        // profile doesn't say (on where neither does: it's the game's own default).
+        let game = profile.parent().and_then(Path::parent).and_then(Path::parent);
+        self.fatigue = fatigue(&profile.with_file_name("config.cfg"))
+            .or_else(|| game.and_then(|game| fatigue(&game.join("config.cfg"))))
+            .unwrap_or(true);
     }
 
     pub fn camera(&mut self) -> CameraSettings {
-        if self.read_at.is_none_or(|at| at.elapsed() >= EVERY) {
-            self.read_at = Some(Instant::now());
-            if let Some(text) = latest_profile_config().and_then(|path| std::fs::read_to_string(path).ok()) {
-                self.settings = CameraSettings::read(&text);
-            }
-        }
+        self.refresh();
         self.settings
     }
+
+    /// Whether the game's fatigue simulation is on; the rest countdown is only shown with it (FIXES §69).
+    pub fn fatigue(&mut self) -> bool {
+        self.refresh();
+        self.fatigue
+    }
+}
+
+/// Whether a `config.cfg` says the game's fatigue simulation is on (`uset g_fatigue "0|1"`), `None` where it
+/// doesn't say.
+fn fatigue(path: &Path) -> Option<bool> {
+    fatigue_in(&std::fs::read_to_string(path).ok()?)
+}
+
+/// Whether a config's text says it ([`fatigue`]).
+fn fatigue_in(text: &str) -> Option<bool> {
+    text.lines().find_map(|line| {
+        let value = line.trim().strip_prefix("uset g_fatigue")?.trim();
+        Some(!value.trim_matches('"').starts_with('0'))
+    })
 }
 
 /// The `config_local.cfg` written last, of every profile of either game (ETS2's, ATS's; Steam's and local).
@@ -112,6 +148,16 @@ mod tests {
     use super::*;
 
     #[test]
+    fn reads_whether_the_fatigue_simulation_is_on() {
+        assert_eq!(fatigue_in("uset g_fatigue \"1\"\n"), Some(true));
+        assert_eq!(fatigue_in("uset g_fatigue \"0\"\n"), Some(false));
+        // A config that doesn't say (the game's own default is on), or says it among everything else.
+        assert_eq!(fatigue_in("uset s_master_volume \"0.75\"\n"), None);
+        assert_eq!(fatigue_in("uset r_interior \"1\"\nuset g_fatigue \"0\"\n"), Some(false));
+        assert_eq!(fatigue(Path::new(r"Z:\nowhere\config.cfg")), None);
+    }
+
+    #[test]
     fn reads_the_steering_camera_from_a_profiles_config() {
         let config =
             "uset g_cam_steering_reverse \"1\"\nuset g_cam_steering_value \"0.5\"\nuset g_cam_steering \"1\"\n";
@@ -126,4 +172,5 @@ mod tests {
         assert_eq!(CameraSettings::read(""), CameraSettings::default());
         assert_eq!(CameraSettings::read("uset g_cam_steering_value \"nan\"").steering_multiplier, 1.0);
     }
+
 }

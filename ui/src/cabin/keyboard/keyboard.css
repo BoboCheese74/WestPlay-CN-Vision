@@ -104,6 +104,29 @@
   font-weight: 600;
 }
 
+/* 中/英/土 on the globe key: the languages it takes the keyboard round, the one in use lit. */
+.keyboard .key.fn .key-tri {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: nowrap;
+  white-space: nowrap;
+  font-size: 16px;
+  font-weight: 650;
+  letter-spacing: 0;
+  line-height: 1;
+}
+
+.keyboard .key.fn .key-tri > span + span::before {
+  content: '/';
+  margin: 0 1px;
+  opacity: 0.4;
+  font-weight: 400;
+}
+
+.keyboard .key.fn .key-tri > span:not(.on) {
+  opacity: 0.4;
+}
+
 .keyboard .key:has(> svg) {
   display: grid;
   place-items: center;

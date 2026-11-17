@@ -8,7 +8,11 @@ use std::ffi::{CStr, CString, c_char, c_void};
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use westplay_shared::{FixedStr, JobInfo, Telemetry, TruckInfo};
+use westplay_shared::{
+    ENGINE_ADBLUE, ENGINE_AIR, ENGINE_ODOMETER, ENGINE_WATER, FixedStr, JobInfo, Telemetry, TrailerInfo, TruckInfo,
+    WEAR_CAB, WEAR_CARGO, WEAR_CHASSIS, WEAR_ENGINE, WEAR_TRAILER_CHASSIS, WEAR_TRAILER_WHEELS, WEAR_TRANSMISSION,
+    WEAR_WHEELS,
+};
 
 use crate::scs::{
     ChannelCallback, ConfigurationEvent, EventCallback, SCS_RESULT_OK, SCS_TELEMETRY_EVENT_CONFIGURATION,
@@ -69,6 +73,23 @@ static SNAPSHOT: Mutex<Telemetry> = Mutex::new(Telemetry {
     cabin_z: 0.0,
     steering: 0.0,
     multiplayer_time_offset: 0,
+    wear_engine: 0.0,
+    wear_transmission: 0.0,
+    wear_cab: 0.0,
+    wear_chassis: 0.0,
+    wear_wheels: 0.0,
+    trailer_connected: false,
+    trailer_wear_chassis: 0.0,
+    trailer_wear_wheels: 0.0,
+    cargo_damage: 0.0,
+    wear_known: 0,
+    rest_stop_minutes: 0,
+    rest_stop_known: false,
+    brake_air_pressure: 0.0,
+    adblue: 0.0,
+    water_temperature: 0.0,
+    odometer: 0.0,
+    engine_known: 0,
 });
 
 /// Where the driver's head is by default in the truck's cab (the "truck" configuration's `head.position`).
@@ -106,6 +127,20 @@ enum Field {
     HeadOffset,
     Steering,
     MultiplayerTimeOffset,
+    WearEngine,
+    WearTransmission,
+    WearCab,
+    WearChassis,
+    WearWheels,
+    TrailerConnected,
+    TrailerWearChassis,
+    TrailerWearWheels,
+    CargoDamage,
+    RestStop,
+    BrakeAirPressure,
+    Adblue,
+    WaterTemperature,
+    Odometer,
 }
 
 const CHANNELS: &[(&str, u32, Field)] = &[
@@ -133,6 +168,26 @@ const CHANNELS: &[(&str, u32, Field)] = &[
     ("truck.head.offset", SCS_VALUE_TYPE_FPLACEMENT, Field::HeadOffset),
     ("truck.effective.steering", SCS_VALUE_TYPE_FLOAT, Field::Steering),
     ("multiplayer.time.offset", SCS_VALUE_TYPE_S32, Field::MultiplayerTimeOffset),
+    // How worn the truck is, and the trailer it pulls: the damage the game shows in its own service and job
+    // screens. A channel the running game hasn't got fails to register (logged) and stays 0.
+    ("truck.wear.engine", SCS_VALUE_TYPE_FLOAT, Field::WearEngine),
+    ("truck.wear.transmission", SCS_VALUE_TYPE_FLOAT, Field::WearTransmission),
+    ("truck.wear.cab", SCS_VALUE_TYPE_FLOAT, Field::WearCab),
+    ("truck.wear.chassis", SCS_VALUE_TYPE_FLOAT, Field::WearChassis),
+    ("truck.wear.wheels", SCS_VALUE_TYPE_FLOAT, Field::WearWheels),
+    ("trailer.connected", SCS_VALUE_TYPE_BOOL, Field::TrailerConnected),
+    ("trailer.wear.chassis", SCS_VALUE_TYPE_FLOAT, Field::TrailerWearChassis),
+    ("trailer.wear.wheels", SCS_VALUE_TYPE_FLOAT, Field::TrailerWearWheels),
+    ("trailer.cargo.damage", SCS_VALUE_TYPE_FLOAT, Field::CargoDamage),
+    // Time until the game forces the driver to rest: the same minutes the game's own route advisor counts
+    // (the fatigue simulation off: the game needn't send it, and then there's no countdown to show).
+    ("rest.stop", SCS_VALUE_TYPE_S32, Field::RestStop),
+    // The engine and its consumables, for the Vehicle app's overview: the brake air tank's pressure, the AdBlue
+    // left, the coolant's temperature and the distance the truck has driven.
+    ("truck.brake.air.pressure", SCS_VALUE_TYPE_FLOAT, Field::BrakeAirPressure),
+    ("truck.adblue", SCS_VALUE_TYPE_FLOAT, Field::Adblue),
+    ("truck.water.temperature", SCS_VALUE_TYPE_FLOAT, Field::WaterTemperature),
+    ("truck.odometer", SCS_VALUE_TYPE_FLOAT, Field::Odometer),
 ];
 
 /// Registers the telemetry channels and events. Called from `scs_telemetry_init`.
@@ -264,6 +319,7 @@ unsafe fn on_configuration(configuration: &ConfigurationEvent) {
         match CStr::from_ptr(configuration.id).to_bytes() {
             b"truck" => on_truck(configuration),
             b"job" => on_job(configuration),
+            b"trailer" => on_trailer(configuration),
             _ => {}
         }
     }
@@ -277,8 +333,8 @@ unsafe fn on_truck(configuration: &ConfigurationEvent) {
         let mut truck = TruckInfo::default();
         let mut head = [0.0; 3];
         let mut cabin = [0.0; 3];
-        // Each wheel's place along the vehicle (z, cm): the wheels of an axle share it (twin wheels too).
-        let mut wheels_along: Vec<i32> = Vec::new();
+    // Each wheel's place along the vehicle (z, cm): the wheels of an axle share it (twin wheels alike).
+    let mut wheels_along: Vec<i32> = Vec::new();
         for attribute in configuration.attributes() {
             match CStr::from_ptr(attribute.name).to_bytes() {
                 b"wheel.position" => {
@@ -293,6 +349,15 @@ unsafe fn on_truck(configuration: &ConfigurationEvent) {
                 }
                 b"cabin.position" => {
                     cabin = attribute.value.fvector().unwrap_or_default();
+                    continue;
+                }
+                // The tanks, which the game gives with the truck: numbers, not strings.
+                b"fuel.capacity" => {
+                    truck.fuel_capacity = attribute.value.float();
+                    continue;
+                }
+                b"adblue.capacity" => {
+                    truck.adblue_capacity = attribute.value.float();
                     continue;
                 }
                 _ => {}
@@ -315,14 +380,13 @@ unsafe fn on_truck(configuration: &ConfigurationEvent) {
         wheels_along.dedup_by(|next, first| *next - *first < 20);
         truck.axles = wheels_along.len() as u32;
         log!(
-            "truck: {} {} ({}, {}), plate {:?} ({}), {} axles, head at {head:?}, cab turning at {cabin:?}",
+            "truck: {} {} ({}, {}), plate {:?} ({}), head at {head:?}, cab turning at {cabin:?}",
             truck.brand.as_str(),
             truck.name.as_str(),
             truck.brand_id.as_str(),
             truck.id.as_str(),
             truck.plate.as_str(),
-            truck.plate_country.as_str(),
-            truck.axles
+            truck.plate_country.as_str()
         );
         *HEAD_DEFAULT.lock().unwrap_or_else(|e| e.into_inner()) = head;
         *CABIN.lock().unwrap_or_else(|e| e.into_inner()) = cabin;
@@ -369,6 +433,40 @@ unsafe fn on_job(configuration: &ConfigurationEvent) {
         );
         if let Some(bridge) = bridge::get() {
             bridge.plugin.job.write(&job);
+        }
+    }
+}
+
+/// # Safety
+/// As [`on_configuration`].
+unsafe fn on_trailer(configuration: &ConfigurationEvent) {
+    // SAFETY: the attributes' names are the SDK's strings, nul-terminated and alive through the call.
+    unsafe {
+        let mut trailer = TrailerInfo::default();
+        for attribute in configuration.attributes() {
+            let Some(value) = attribute.value.string() else { continue };
+            match CStr::from_ptr(attribute.name).to_bytes() {
+                b"id" => trailer.id = FixedStr::new(&value),
+                b"brand_id" => trailer.brand_id = FixedStr::new(&value),
+                b"brand" => trailer.brand = FixedStr::new(&value),
+                b"name" => trailer.name = FixedStr::new(&value),
+                b"license.plate" => trailer.plate = FixedStr::new(&value),
+                b"chain_type" => trailer.chain_type = FixedStr::new(&value),
+                b"body_type" => trailer.body_type = FixedStr::new(&value),
+                _ => {}
+            }
+        }
+        log!(
+            "trailer: {} {} ({}, {}, {}), plate {:?}",
+            trailer.brand.as_str(),
+            trailer.name.as_str(),
+            trailer.id.as_str(),
+            trailer.chain_type.as_str(),
+            trailer.body_type.as_str(),
+            trailer.plate.as_str()
+        );
+        if let Some(bridge) = bridge::get() {
+            bridge.plugin.trailer.write(&trailer);
         }
     }
 }
@@ -429,6 +527,61 @@ unsafe fn on_channel_value(value: *const ScsValue, context: *mut c_void) {
             }
             Field::Steering => s.steering = value.float(),
             Field::MultiplayerTimeOffset => s.multiplayer_time_offset = value.s32(),
+            // Each wear channel also marks itself known: the app shows what the game has, not a false 0 damage.
+            Field::WearEngine => {
+                s.wear_engine = value.float();
+                s.wear_known |= WEAR_ENGINE;
+            }
+            Field::WearTransmission => {
+                s.wear_transmission = value.float();
+                s.wear_known |= WEAR_TRANSMISSION;
+            }
+            Field::WearCab => {
+                s.wear_cab = value.float();
+                s.wear_known |= WEAR_CAB;
+            }
+            Field::WearChassis => {
+                s.wear_chassis = value.float();
+                s.wear_known |= WEAR_CHASSIS;
+            }
+            Field::WearWheels => {
+                s.wear_wheels = value.float();
+                s.wear_known |= WEAR_WHEELS;
+            }
+            Field::RestStop => {
+                s.rest_stop_minutes = value.s32();
+                s.rest_stop_known = true;
+            }
+            Field::TrailerConnected => s.trailer_connected = value.bool(),
+            Field::TrailerWearChassis => {
+                s.trailer_wear_chassis = value.float();
+                s.wear_known |= WEAR_TRAILER_CHASSIS;
+            }
+            Field::TrailerWearWheels => {
+                s.trailer_wear_wheels = value.float();
+                s.wear_known |= WEAR_TRAILER_WHEELS;
+            }
+            Field::CargoDamage => {
+                s.cargo_damage = value.float();
+                s.wear_known |= WEAR_CARGO;
+            }
+            // Each also marks itself known: the app shows what the game has, not a false 0.
+            Field::BrakeAirPressure => {
+                s.brake_air_pressure = value.float();
+                s.engine_known |= ENGINE_AIR;
+            }
+            Field::Adblue => {
+                s.adblue = value.float();
+                s.engine_known |= ENGINE_ADBLUE;
+            }
+            Field::WaterTemperature => {
+                s.water_temperature = value.float();
+                s.engine_known |= ENGINE_WATER;
+            }
+            Field::Odometer => {
+                s.odometer = value.float();
+                s.engine_known |= ENGINE_ODOMETER;
+            }
         }
     }
 }
@@ -466,5 +619,58 @@ fn reset(s: &mut Telemetry, field: Field) {
         }
         Field::Steering => s.steering = d.steering,
         Field::MultiplayerTimeOffset => s.multiplayer_time_offset = d.multiplayer_time_offset,
+        Field::WearEngine => {
+            s.wear_engine = d.wear_engine;
+            s.wear_known &= !WEAR_ENGINE;
+        }
+        Field::WearTransmission => {
+            s.wear_transmission = d.wear_transmission;
+            s.wear_known &= !WEAR_TRANSMISSION;
+        }
+        Field::WearCab => {
+            s.wear_cab = d.wear_cab;
+            s.wear_known &= !WEAR_CAB;
+        }
+        Field::WearChassis => {
+            s.wear_chassis = d.wear_chassis;
+            s.wear_known &= !WEAR_CHASSIS;
+        }
+        Field::WearWheels => {
+            s.wear_wheels = d.wear_wheels;
+            s.wear_known &= !WEAR_WHEELS;
+        }
+        Field::RestStop => {
+            s.rest_stop_minutes = d.rest_stop_minutes;
+            s.rest_stop_known = d.rest_stop_known;
+        }
+        Field::TrailerConnected => s.trailer_connected = d.trailer_connected,
+        Field::TrailerWearChassis => {
+            s.trailer_wear_chassis = d.trailer_wear_chassis;
+            s.wear_known &= !WEAR_TRAILER_CHASSIS;
+        }
+        Field::TrailerWearWheels => {
+            s.trailer_wear_wheels = d.trailer_wear_wheels;
+            s.wear_known &= !WEAR_TRAILER_WHEELS;
+        }
+        Field::CargoDamage => {
+            s.cargo_damage = d.cargo_damage;
+            s.wear_known &= !WEAR_CARGO;
+        }
+        Field::BrakeAirPressure => {
+            s.brake_air_pressure = d.brake_air_pressure;
+            s.engine_known &= !ENGINE_AIR;
+        }
+        Field::Adblue => {
+            s.adblue = d.adblue;
+            s.engine_known &= !ENGINE_ADBLUE;
+        }
+        Field::WaterTemperature => {
+            s.water_temperature = d.water_temperature;
+            s.engine_known &= !ENGINE_WATER;
+        }
+        Field::Odometer => {
+            s.odometer = d.odometer;
+            s.engine_known &= !ENGINE_ODOMETER;
+        }
     }
 }

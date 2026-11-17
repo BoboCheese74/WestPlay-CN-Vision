@@ -4,7 +4,8 @@
  */
 
 /** Central Europe's time zone, minutes: the one ETS2's SDK game time is in (a map's before WestPlay wrote its game's). */
-const ETS2_ZONE = 120
+export const GAME_ZONE = 120
+const ETS2_ZONE = GAME_ZONE
 
 /** The map's countries on a grid (`countries.json`), and their time zones. */
 export interface CountryGrid {

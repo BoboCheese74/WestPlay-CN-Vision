@@ -85,10 +85,11 @@ impl Default for MapSettings {
     }
 }
 
-/// The sound the players play: its tone (the cab's Settings › Equalizer), the same in every truck. As iOS's
-/// AirPods have it (owner 2026-10-22): Recommended, the speakers as tuned, or Custom, the player's own curve
-/// (kept while Recommended plays).
-#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
+/// The sound the players play: its tone (the cab's Settings › Equalizer), the same in every truck, and whether
+/// it comes from the truck's own speakers, each placed where it sits in the cab (the cab's Settings › Sound). As
+/// iOS's AirPods have it (owner 2026-10-22): Recommended, the speakers as tuned, or Custom, the player's own
+/// curve (kept while Recommended plays).
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct SoundSettings {
     /// The player's own curve.
@@ -97,10 +98,16 @@ pub struct SoundSettings {
     /// Custom chosen: the curve plays (otherwise flat).
     #[serde(deserialize_with = "lenient")]
     pub custom: bool,
-    /// Which of a coach's speakers play (the companion's Truck Screen page).
-    #[serde(deserialize_with = "lenient")]
+    /// Which of a coach's speakers play (owner 2026-11-13): the driver's round the seat, or the
+    /// passengers' along the aisle (as real coaches have a cockpit system and a passengers' one).
+    #[serde(default)]
     pub coach: CoachSpeakers,
+    /// The truck's own speakers, placed in its cab. Off, no speakers are told to the players and the sound
+    /// plays as it is (stereo), through the tone and the cab's walls alone.
+    #[serde(deserialize_with = "lenient_on")]
+    pub spatial: bool,
 }
+
 
 /// Which of a coach's speakers play (owner 2026-11-13: a setting of the companion's, not the cab's, as real coaches
 /// have a cockpit system and a passengers' one): the driver's, round the seat, or the passengers', every overhead unit
@@ -111,6 +118,19 @@ pub enum CoachSpeakers {
     #[default]
     Driver,
     Passengers,
+}
+
+impl Default for SoundSettings {
+    /// The speakers on: what every version before this setting did, so a file written by one of them keeps
+    /// sounding the same.
+    fn default() -> Self {
+        Self {
+            equalizer: crate::speakers::Equalizer::default(),
+            custom: false,
+            coach: CoachSpeakers::Driver,
+            spatial: true,
+        }
+    }
 }
 
 impl SoundSettings {
@@ -291,8 +311,7 @@ impl<'de> Deserialize<'de> for Keybinds {
 
 impl Default for Keybinds {
     /// The interaction key with 1, 2 and 3 (as promised to the players who asked: Alt+1, Alt+2, Alt+3), in a
-    /// row as on a stereo (owner 2026-10-21): volume down, play/pause between, volume up; then the screen's
-    /// brightness down and up with 4 and 5 (owner 2026-11-13).
+    /// row as on a stereo (owner 2026-10-21): volume down, play/pause between, volume up.
     fn default() -> Self {
         let with_key = |code| Binding { key: KeyCode(code), with_interaction_key: true };
         Self {
@@ -306,11 +325,9 @@ impl Default for Keybinds {
 }
 
 impl Keybinds {
-    /// Each keybind as the bridge carries it ([`westplay_shared::keybind_value`]), in [`Keybind::ALL`]'s order. One
-    /// pressed as one before it is (a player's own Alt+4 for a volume key, from before the brightness keys took 4
-    /// and 5 by default) is left unbound (0): the player's own keeps the key, and one press never does two things.
+    /// Each keybind as the bridge carries it ([`westplay_shared::keybind_value`]), in [`Keybind::ALL`]'s order.
     pub fn bridge_values(&self) -> [u32; KEYBIND_COUNT] {
-        let values = Keybind::ALL.map(|keybind| {
+        Keybind::ALL.map(|keybind| {
             let binding = match keybind {
                 Keybind::VolumeUp => self.volume_up,
                 Keybind::VolumeDown => self.volume_down,
@@ -319,8 +336,7 @@ impl Keybinds {
                 Keybind::BrightnessUp => self.brightness_up,
             };
             keybind_value(binding.key.virtual_key(), binding.with_interaction_key)
-        });
-        std::array::from_fn(|i| if values[..i].contains(&values[i]) { 0 } else { values[i] })
+        })
     }
 }
 
@@ -339,6 +355,42 @@ pub struct Binding {
 pub struct ScreenSettings {
     #[serde(deserialize_with = "lenient")]
     pub truck_strip: TruckStrip,
+    /// How often WestPlay hands the game a new frame (Settings › Display & Performance › Screen Refresh Rate).
+    #[serde(deserialize_with = "lenient")]
+    pub refresh_rate: RefreshRate,
+    /// Which of the cab's two screens WestPlay fills first (the companion's Truck Screen › Display priority):
+    /// off, the truck's own screen, as it always did (WestPlay's tablet then stays blank in a truck whose own
+    /// screen shows WestPlay); on, WestPlay's tablet, the truck's own screens then keeping the game's own.
+    #[serde(deserialize_with = "lenient")]
+    pub tablet_first: bool,
+    /// Whether the screen gives up some of its effects to run lighter (Settings › Display & Performance ›
+    /// Performance Mode): the map's 3D buildings, the frosted glass and the animations. The cabin page is what
+    /// applies it (`ui/src/cabin/performance.css`, `ui/src/cabin/maps/buildings.ts`); the host only keeps it,
+    /// as it keeps the refresh rate.
+    #[serde(deserialize_with = "lenient")]
+    pub performance_mode: bool,
+}
+
+/// The screen's refresh rate: how often WestPlay's screen is redrawn for the game, 60 Hz as the game's own
+/// screens are, or 30 Hz to lighten the load on a lesser machine (the owner's ask, 2026-10-31). It is what
+/// `capture` publishes at; the cabin page draws its map at the same rate (`maps/frameCap.ts`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum RefreshRate {
+    #[default]
+    #[serde(rename = "60")]
+    Hz60,
+    #[serde(rename = "30")]
+    Hz30,
+}
+
+impl RefreshRate {
+    /// Frames a second it publishes (`capture::interval_for`).
+    pub fn hz(self) -> u32 {
+        match self {
+            Self::Hz60 => 60,
+            Self::Hz30 => 30,
+        }
+    }
 }
 
 /// The truck's own strip beside WestPlay (the Scania Smart Dash's, the DAF's status bar): kept where the
@@ -395,6 +447,13 @@ impl Default for Sensitivity {
 fn lenient<'de, D: Deserializer<'de>, T: DeserializeOwned + Default>(deserializer: D) -> Result<T, D::Error> {
     let value = serde_json::Value::deserialize(deserializer)?;
     Ok(T::deserialize(value).unwrap_or_default())
+}
+
+/// [`lenient`] for a flag whose default is on: a value that doesn't fit falls back to `true`, not to the `false`
+/// a `bool` defaults to. Without it, one bad byte in the file would silently take the truck's speakers away.
+fn lenient_on<'de, D: Deserializer<'de>>(deserializer: D) -> Result<bool, D::Error> {
+    let value = serde_json::Value::deserialize(deserializer)?;
+    Ok(bool::deserialize(value).unwrap_or(true))
 }
 
 /// The file's content: the version, then the settings.
@@ -520,7 +579,12 @@ mod tests {
                 volume_up: Binding { key: KeyCode::new(0x6b).unwrap(), with_interaction_key: false },
                 ..Keybinds::default()
             },
-            screen: ScreenSettings { truck_strip: TruckStrip::Off },
+            screen: ScreenSettings {
+                truck_strip: TruckStrip::Off,
+                refresh_rate: RefreshRate::Hz30,
+                performance_mode: true,
+                tablet_first: true,
+            },
             look: LookSettings {
                 wallpaper: Some("custom:Dusk".into()),
                 icon_set: Some("Retro".into()),
@@ -530,7 +594,7 @@ mod tests {
             sound: SoundSettings {
                 equalizer: crate::speakers::Equalizer { bass: -3, mid: 1, treble: 2 },
                 custom: true,
-                coach: CoachSpeakers::Passengers,
+                spatial: false,
             },
             map: MapSettings { buildings: false, roads: false, fast: true },
             language: LanguageCode::new("pt_br"),
@@ -541,6 +605,10 @@ mod tests {
         assert!(json.contains("\"key\": 5"), "{json}");
         assert!(json.contains("\"mode\": \"toggle\""), "{json}");
         assert!(json.contains("\"truckStrip\": \"off\""), "{json}");
+        assert!(json.contains("\"refreshRate\": \"30\""), "{json}");
+        assert!(json.contains("\"performanceMode\": true"), "{json}");
+        assert!(json.contains("\"tabletFirst\": true"), "{json}");
+        assert!(json.contains("\"spatial\": false"), "{json}");
         assert!(json.contains("\"language\": \"pt_br\""), "{json}");
         assert_eq!(parse(&json).unwrap(), settings);
     }
@@ -559,13 +627,20 @@ mod tests {
             [partial.keybinds.volume_down, partial.keybinds.play_pause, partial.keybinds.volume_up],
             [with_key(0x31), with_key(0x32), with_key(0x33)]
         );
-        // And from before the brightness keys: the interaction key with 4 (down) and 5 (up).
-        assert_eq!(
-            [partial.keybinds.brightness_down, partial.keybinds.brightness_up],
-            [with_key(0x34), with_key(0x35)]
-        );
         // Files from before the truck strip was a setting keep it on Auto.
         assert_eq!(partial.screen.truck_strip, TruckStrip::Auto);
+        // And before the screen's refresh rate was: 60 Hz, as WestPlay's screen always was.
+        assert_eq!(partial.screen.refresh_rate, RefreshRate::Hz60);
+        // From before the speakers could be turned off: on, as every truck sounded before.
+        assert!(partial.sound.spatial);
+        // A value that doesn't fit is on too, not off: one bad byte mustn't take the speakers away.
+        assert!(parse(r#"{"version": 1, "sound": {"spatial": "maybe"}}"#).unwrap().sound.spatial);
+        assert!(parse(r#"{"version": 1, "sound": {"spatial": null}}"#).unwrap().sound.spatial);
+        assert_eq!(partial.screen.refresh_rate.hz(), 60);
+        // And before the performance mode was: off (every effect it gives up is on).
+        assert!(!partial.screen.performance_mode);
+        // And from before the display's priority was: the truck's own screen first, as it always was.
+        assert!(!partial.screen.tablet_first);
         // And from before the GPU was: WestPlay picks it.
         assert_eq!(partial.graphics.gpu, None);
         // And from before the map's buildings and roads could be switched: they stay on.
@@ -595,6 +670,16 @@ mod tests {
         let settings = parse(r#"{"screen": {"truckStrip": "sideways"}, "interaction": {"key": "rightCtrl"}}"#).unwrap();
         assert_eq!(settings.screen.truck_strip, TruckStrip::Auto);
         assert_eq!(settings.interaction.key.virtual_key(), 0xa3);
+        // A refresh rate WestPlay doesn't offer is the standard one, not a broken file.
+        let settings = parse(r#"{"screen": {"refreshRate": "144"}}"#).unwrap();
+        assert_eq!(settings.screen.refresh_rate, RefreshRate::Hz60);
+        let settings = parse(r#"{"screen": {"refreshRate": "30"}}"#).unwrap();
+        assert_eq!(settings.screen.refresh_rate.hz(), 30);
+        // A performance mode that isn't a yes or no is off, not a broken file.
+        let settings = parse(r#"{"screen": {"performanceMode": "yes"}}"#).unwrap();
+        assert!(!settings.screen.performance_mode);
+        let settings = parse(r#"{"screen": {"performanceMode": true}}"#).unwrap();
+        assert!(settings.screen.performance_mode);
         // A key no keyboard has, and a binding missing its key: their defaults.
         let settings =
             parse(r#"{"version": 2, "interaction": {"key": 999}, "keybinds": {"volumeUp": {"key": 300}}}"#).unwrap();

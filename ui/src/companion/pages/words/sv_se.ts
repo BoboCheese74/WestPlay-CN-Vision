@@ -74,6 +74,9 @@ export const words: CompanionWords = {
     coachPassengersDetail: 'Alla ovanför sätena',
     coachNote: 'Passagerarnas högtalare i den här bussen: {n}, alla samtidigt. På en svag processor kan spelet hacka.',
     coachNoteAny: 'I en buss spelar passagerarnas högtalare alla samtidigt. På en svag processor kan spelet hacka.',
+    display: 'Truck Screen',
+    displayFirst: 'WestPlay tablet',
+    displayFirstDetail: 'WestPlay fills the tablet first, even in a truck whose own screen shows it.',
     elevated: {
       title: 'Spelet körs som administratör',
       text: 'Då kan WestPlay inte läsa spelets rutt, vägvisning eller väder. Starta spelet som vanligt, inte som administratör.',

@@ -305,7 +305,10 @@ mod tests {
         // Written as Steam writes its own folder: lowercase, forward slashes.
         let windows = std::env::var("SystemRoot").unwrap();
         let as_steam_writes = windows.to_lowercase().replace('\\', "/");
-        assert_eq!(windows_name(Path::new(&as_steam_writes)), Path::new(&windows));
+        // As Windows names it: the folder's own name, whatever casing the system's variable has (a PC whose
+        // SystemRoot says C:\WINDOWS and whose folder is C:\Windows is named C:\Windows here).
+        let named = windows_name(Path::new(&as_steam_writes));
+        assert!(named.to_string_lossy().eq_ignore_ascii_case(&windows), "{named:?} against {windows:?}");
         // A folder that isn't there stays as given.
         assert_eq!(windows_name(Path::new("q:/not/there")), Path::new("q:/not/there"));
     }

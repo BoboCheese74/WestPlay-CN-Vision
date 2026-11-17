@@ -30,7 +30,7 @@ pub fn bridge_name() -> String {
     format!("Local\\WestPlay.Bridge.v{BRIDGE_VERSION}")
 }
 pub const BRIDGE_MAGIC: u32 = u32::from_le_bytes(*b"WPB7");
-pub const BRIDGE_VERSION: u32 = 28;
+pub const BRIDGE_VERSION: u32 = 29;
 
 /// Size of the app's frames, and the base size of the screen textures in the mod (`westplay_setup::game_mod`
 /// builds them from these).
@@ -78,9 +78,7 @@ pub fn screen_layouts() -> &'static [ScreenLayout] {
 /// stretched to it (owner 2026-11-03): the Scania Smart Dash's 23.44 x 14.35 cm (1.633:1), the Smart Dash
 /// Advanced's 31.51 x 17.49 cm (1.801:1), the Iveco S-Way's 22.25 x 12.46 cm (1.786:1), the Volvo FH's (2021 and
 /// 2024) 19.87 x 11.35 cm (1.750:1); the DAF 2021's 22.37 x 12.58 cm and the Renault T 2024's 19.93 x 11.21 cm,
-/// 16:9, the frame's own. The Coaches DLC's (2026-11-12, their interiors' models' `gps.tobj` pieces, each showing
-/// its script's whole screen): the Scania Touring's 19.43 x 11.08 cm (1.754:1, its corners rounded), the MAN Lion's
-/// Coach 2024's 15.69 x 9.61 cm (1.633:1).
+/// 16:9, the frame's own.
 pub fn page_height(index: usize) -> u32 {
     match screen_layouts().get(index).map(|layout| layout.id) {
         Some("generic") => 793,
@@ -93,8 +91,9 @@ pub fn page_height(index: usize) -> u32 {
         Some("setra-516") => 777,
         Some("setra-531") => 761,
         Some("man-lions-coach") => 778,
-        Some("scania-touring") => 730,
-        Some("man-lions-24") => 784,
+        // The frame's own 1280 x 720: the part is sized to that shape (crates/setup `SHOWN_PARTS`), the
+        // script's 1440 x 540 window notwithstanding (owner 2026-11-13).
+                Some("man-tgx-2020") => 720,
         _ => SCREEN_HEIGHT,
     }
 }
@@ -211,6 +210,11 @@ const SHARED_LAYOUT_TRUCKS: &[(&str, &[&str])] = &[
     ("generic", &["scania.s_2016", "scania.r_2016", "scania.s_2024e"]),
     // The game's toy GPS (Cabin Accessories), WestPlay's only on Oyuncuyusbis' Setra S 516 HD/2's tablet part.
     ("setra-516", &["setra516hd"]),
+    // American Truck Simulator's trucks and Road Trip's cars: each layout is its own vehicles' only (measured
+    // 2026-11-06: the ids are the definitions' folders, the cars' under /def/vehicle/car).
+    ("ford", &["ford.bronco_24", "ford.f150_23"]),
+    ("kenworth", &["kenworth.t680_2022"]),
+    ("volvo-vnl", &["volvo.vnl2018", "volvo.vnl2025"]),
 ];
 
 /// The trucks WestPlay shows in on the layout `id`, if it's one other trucks share ([`SHARED_LAYOUT_TRUCKS`]); none
@@ -293,6 +297,8 @@ pub struct PluginBlock {
     pub truck: SeqLock<TruckInfo>,
     /// The player's job (`active` false when there is none).
     pub job: SeqLock<JobInfo>,
+    /// The trailer hitched (empty fields when there is none), published as it changes.
+    pub trailer: SeqLock<TrailerInfo>,
     /// Mouse input for the WestPlay screen while the player holds the interaction key.
     pub pointer: PointerBlock,
     /// Under TruckersMP: the players around the player, from TruckersMP's SDK (the plugin's `truckersmp`).
@@ -304,9 +310,9 @@ pub struct PluginBlock {
     pub keybind_holds: [AtomicU32; KEYBIND_COUNT],
 }
 
-/// How long (ms) a volume key held is a hold, not a press (owner 2026-11-13: one second, it was two): Volume up's the
-/// next song, Volume down's the one before (or the song's start, past its first seconds).
-pub const KEYBIND_HOLD_MS: u64 = 1000;
+/// How long (ms) a volume key held is a hold, not a press (owner 2026-11-03: two seconds): Volume up's the next
+/// song, Volume down's the one before (or the song's start, past its first seconds).
+pub const KEYBIND_HOLD_MS: u64 = 2000;
 
 /// The most of TruckersMP's players around the player the bridge carries (its streaming range holds far fewer).
 pub const NEARBY_MAX: usize = 128;
@@ -429,6 +435,10 @@ pub struct HostBlock {
     pub interaction_toggle: AtomicU32,
     /// Each [`Keybind`]'s key ([`keybind_value`]): 0 until the app has set them, meaning none.
     pub keybinds: [AtomicU32; KEYBIND_COUNT],
+    /// 1 while WestPlay's tablet has the display's priority (the app's Truck Screen › Display priority): the
+    /// truck's own screens then keep the game's own. 0, the truck's own screen shows WestPlay first, as it
+    /// always did, and the tablet stays blank in a truck whose own screen shows it.
+    pub tablet_first: AtomicU32,
 }
 
 /// What WestPlay does from the game by a key of the player's choosing (the app's settings).
@@ -444,16 +454,15 @@ pub enum Keybind {
 }
 
 impl Keybind {
-    pub const ALL: [Keybind; KEYBIND_COUNT] =
-        [Keybind::VolumeUp, Keybind::VolumeDown, Keybind::PlayPause, Keybind::BrightnessDown, Keybind::BrightnessUp];
+    pub const ALL: [Keybind; KEYBIND_COUNT] = [Keybind::VolumeUp, Keybind::VolumeDown, Keybind::PlayPause];
 
     /// Whether it can be held ([`KEYBIND_HOLD_MS`]): the volume keys, whose press then counts as they're let go.
     pub fn holds(self) -> bool {
-        matches!(self, Keybind::VolumeUp | Keybind::VolumeDown)
+        self != Keybind::PlayPause
     }
 }
 
-pub const KEYBIND_COUNT: usize = 5;
+pub const KEYBIND_COUNT: usize = 3;
 
 /// A keybind as the bridge carries it: its key's virtual-key code, and whether it's pressed while holding the
 /// interaction key (using the screen) rather than alone.
@@ -669,6 +678,77 @@ pub struct Telemetry {
     /// SDK's `multiplayer.time.offset`; 0 out of one): the cab's clock shows `game_time` plus this. A job's
     /// times are the player's own.
     pub multiplayer_time_offset: i32,
+    /// How worn the truck's parts are, each 0 (as new) to 1: the SDK's `truck.wear.*` channels. The ones the
+    /// game answered are in `wear_known`; a channel it hasn't (a game older than it) stays 0.
+    pub wear_engine: f32,
+    pub wear_transmission: f32,
+    pub wear_cab: f32,
+    pub wear_chassis: f32,
+    pub wear_wheels: f32,
+    /// Whether a trailer is hitched (the SDK's `trailer.connected`), how worn its chassis and wheels are and how
+    /// damaged its cargo is (0..1: `trailer.wear.*`, `trailer.cargo.damage`; the same `wear_known` says which
+    /// the game answered).
+    pub trailer_connected: bool,
+    pub trailer_wear_chassis: f32,
+    pub trailer_wear_wheels: f32,
+    pub cargo_damage: f32,
+    /// Bits of [`WEAR_ENGINE`] and the rest: the wear and damage channels the game answered. A channel missing
+    /// from it reads 0 because the game hasn't got it, not because nothing is worn.
+    pub wear_known: u32,
+    /// In-game minutes until the game says the driver has to rest (the SDK's `rest.stop`: the same figure the
+    /// game's own route advisor counts down), and whether the game has said. It says nothing while the game's
+    /// fatigue simulation is off (`rest_stop_known` false, and the app shows no countdown).
+    pub rest_stop_minutes: i32,
+    pub rest_stop_known: bool,
+    /// The truck's engine and its consumables, for the Vehicle app's overview (the SDK's own channels): the
+    /// brake air tank's pressure (psi, `truck.brake.air.pressure`), the AdBlue left (litres, `truck.adblue`),
+    /// the engine's coolant (degrees Celsius, `truck.water.temperature`) and the odometer (kilometres,
+    /// `truck.odometer`). Which the game answered is `engine_known` ([`ENGINE`]): an older game has none of
+    /// them, and then they read 0 for lack of an answer, not as empty.
+    pub brake_air_pressure: f32,
+    pub adblue: f32,
+    pub water_temperature: f32,
+    pub odometer: f32,
+    /// Bits of [`ENGINE`]: the engine, consumable and distance channels the game answered.
+    pub engine_known: u32,
+}
+
+/// Bits of [`Telemetry::wear_known`], one for each wear and damage channel.
+pub const WEAR_ENGINE: u32 = 1 << 0;
+pub const WEAR_TRANSMISSION: u32 = 1 << 1;
+pub const WEAR_CAB: u32 = 1 << 2;
+pub const WEAR_CHASSIS: u32 = 1 << 3;
+pub const WEAR_WHEELS: u32 = 1 << 4;
+pub const WEAR_TRAILER_CHASSIS: u32 = 1 << 5;
+pub const WEAR_TRAILER_WHEELS: u32 = 1 << 6;
+pub const WEAR_CARGO: u32 = 1 << 7;
+
+/// Bits of [`Telemetry::engine_known`], one for each engine, consumable and distance channel.
+pub const ENGINE_AIR: u32 = 1 << 0;
+pub const ENGINE_ADBLUE: u32 = 1 << 1;
+pub const ENGINE_WATER: u32 = 1 << 2;
+pub const ENGINE_ODOMETER: u32 = 1 << 3;
+
+/// Identity of the trailer hitched, from the SDK's "trailer" configuration (all empty when there is none: the
+/// game sends no attributes then).
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "camelCase"))]
+pub struct TrailerInfo {
+    /// Its model id, e.g. `trailer.scs.box` (`id`).
+    pub id: FixedStr<64>,
+    /// Brand for configuration purposes, e.g. `scs` (`brand_id`).
+    pub brand_id: FixedStr<32>,
+    /// Brand for display, localized by the game (`brand`).
+    pub brand: FixedStr<64>,
+    /// Its model's name for display, localized by the game (`name`); many the game has none for.
+    pub name: FixedStr<64>,
+    /// Its licence plate as the game shows it (`license.plate`).
+    pub plate: FixedStr<32>,
+    /// The SDK's own ids: `chain_type` (single, double, b-double…), `body_type` (dryvan, refrigerated, flatbed…).
+    pub chain_type: FixedStr<32>,
+    pub body_type: FixedStr<32>,
 }
 
 /// Identity of the current truck, from the SDK's "truck" configuration.
@@ -699,6 +779,10 @@ pub struct TruckInfo {
     /// The plate's country (`license.plate.country.id`, e.g. `italy`).
     #[cfg_attr(feature = "serde", serde(skip))]
     pub plate_country: FixedStr<32>,
+    /// The tanks the truck holds, for the Vehicle app's overview: its fuel tank's capacity in litres
+    /// (`fuel.capacity`) and its AdBlue tank's (`adblue.capacity`), which the game gives with the truck.
+    pub fuel_capacity: f32,
+    pub adblue_capacity: f32,
 }
 
 /// The player's current job, from the SDK's "job" configuration. Names come localized by the game.
@@ -798,6 +882,8 @@ unsafe impl Plain for Telemetry {}
 unsafe impl Plain for TruckInfo {}
 // SAFETY: byte strings, integers, floats and `bool`s only (see `Plain`).
 unsafe impl Plain for JobInfo {}
+// SAFETY: byte strings only (see `Plain`).
+unsafe impl Plain for TrailerInfo {}
 // SAFETY: integers and floats only (see `Plain`); a count read torn is bounded by `Nearby::players`.
 unsafe impl Plain for Nearby {}
 
@@ -1066,9 +1152,10 @@ mod tests {
             id: FixedStr::new("vehicle.daf.2021"),
             name: FixedStr::new("XG+"),
             head: [-0.722, 1.696, 0.686],
-            axles: 3,
             plate: FixedStr::new("CA 324KD"),
             plate_country: FixedStr::new("italy"),
+            fuel_capacity: 700.0,
+            adblue_capacity: 95.0,
         };
         lock.write(&truck);
         assert_eq!(lock.read(), Some(truck));
@@ -1110,6 +1197,16 @@ mod tests {
         assert!(screen_supported(layout("daf-2021"), "vehicle.daf.2021"));
         assert!(screen_supported(layout("iveco-sway"), "vehicle.iveco.sway"));
         assert!(!screen_supported(screen_layouts().len(), "vehicle.scania.s_2016"));
+
+        // American Truck Simulator's trucks, and Road Trip's cars (measured 2026-11-06).
+        assert!(screen_supported(layout("ford"), "vehicle.ford.bronco_24"));
+        assert!(screen_supported(layout("ford"), "vehicle.ford.f150_23"));
+        assert!(screen_supported(layout("kenworth"), "vehicle.kenworth.t680_2022"));
+        assert!(screen_supported(layout("volvo-vnl"), "vehicle.volvo.vnl2018"));
+        assert!(screen_supported(layout("volvo-vnl"), "vehicle.volvo.vnl2025"));
+        // Each is its own vehicles' only: another truck keeps the game's own screen.
+        assert!(!screen_supported(layout("ford"), "vehicle.scania.s_2016"));
+        assert!(!screen_supported(layout("kenworth"), "vehicle.volvo.vnl2018"));
     }
 
     #[test]

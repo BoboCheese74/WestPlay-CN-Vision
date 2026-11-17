@@ -29,3 +29,23 @@ dist/
 
 # Real CarPlay photos the owner took, for reference only: Apple's UI in someone's car, never committed or shipped
 /reference/
+
+# Build outputs copied in for bundling (the build script fills them; never committed)
+/app/dist-plugin/
+/ui/dist/
+
+# The QQ middle layer as shipped: the embeddable interpreter, its dependencies and the compiled
+# layer (69 MB). Built by tools/scripts/build-qq-layer.ps1 from the layer's own sources; the
+# release installer carries it (app/tauri.conf.json's `qq-music-layer/` resource).
+/app/qq-music-layer/
+
+# The released installers and manifests (build/<version>/)
+/build/
+
+# Signing keys: the updater's private key stays with its owner, outside the repository
+*.key
+*.key.pub
+
+# WestPlay CN Vision: the layer's own compiled sources are built, not committed
+*.pyc
+__pycache__/

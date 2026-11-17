@@ -69,6 +69,10 @@ impl std::fmt::Display for InstallError {
 
 impl std::error::Error for InstallError {}
 
+fn is_in_use(error: &io::Error) -> bool {
+    matches!(error.raw_os_error(), Some(ERROR_SHARING_VIOLATION | ERROR_LOCK_VIOLATION))
+}
+
 impl From<io::Error> for InstallError {
     fn from(error: io::Error) -> Self {
         match error.raw_os_error() {

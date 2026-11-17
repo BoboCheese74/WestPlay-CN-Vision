@@ -1,10 +1,10 @@
-import { type ClockStyle, formatGameTime, formatTripDistance, formatTripTime, HOURS_24 } from '../../shared/format'
+import { type ClockStyle, formatGameTime, formatTimeLeft, formatTripDistance, formatTripTime, HOURS_24 } from '../../shared/format'
 import { cabClock, type JobInfo, type Telemetry } from '../../shared/host'
-import { labelLines } from '../maps/labels'
 import type { MapLabel } from '../maps/mapData'
 import { metresBetween, toLngLat } from '../maps/projection'
 import type { Point } from '../maps/route'
 import type { Strings } from '../state/strings'
+import { cityName, companyName } from './placeNames'
 
 /**
  * Where the truck is headed, for the Dashboard's destination widget: the job (its pickup, then its
@@ -36,7 +36,7 @@ export function formatDeadline(
     : `${days[Math.floor(deadline / 1440) % 7]} ${time}`
 }
 
-/** The city nearest `at` (game metres), by its name as the map shows it; `null` without any. */
+/** The city nearest `at` (game metres), named in the player's language as the map has it; `null` without any. */
 export function nearestCity(at: Point, labels: readonly MapLabel[]): string | null {
   const target = toLngLat(at[0], at[1])
   let best: { label: MapLabel; distance: number } | null = null
@@ -45,7 +45,9 @@ export function nearestCity(at: Point, labels: readonly MapLabel[]): string | nu
     const distance = metresBetween(target, label.at)
     if (!best || distance < best.distance) best = { label, distance }
   }
-  return best && labelLines(best.label.name, best.label.localized).first
+  // The map's own name is the place's (Paris, Kraków); `localized` is the player's (巴黎, 克拉科夫), which is
+  // what the cabin, in the player's language, shows.
+  return best ? best.label.localized || best.label.name : null
 }
 
 export function destinationView(
@@ -66,10 +68,11 @@ export function destinationView(
   if (job) {
     if (!job.cargoLoaded) {
       const tonnes = (job.cargoMass / 1000).toFixed(1).replace('.', text.decimal)
+      const city = cityName(job.sourceCity, labels)
       return {
         kicker: text.pickup,
-        title: job.sourceCompany || job.sourceCity,
-        subtitle: job.sourceCompany ? job.sourceCity : null,
+        title: companyName(job.sourceCompany) || city,
+        subtitle: job.sourceCompany ? city : null,
         detail: job.cargo ? `${job.cargo} · ${tonnes} t` : `${tonnes} t`,
         late: false,
       }
@@ -81,16 +84,19 @@ export function destinationView(
           ? `${Math.round((job.plannedDistanceKm * 1000) / 1609.344)} mi`
           : `${job.plannedDistanceKm} km`
     const late = job.deliveryTime > 0 && now > job.deliveryTime
+    // The time left, not the hour it is due (owner 2026-11-02, FIXES §70): "剩余 27 小时 · 312 km". A duration,
+    // so the cab clock's time zone plays no part in it — only the game's own time, as the job's is.
     const deadline =
       job.deliveryTime > 0
         ? late
           ? text.late
-          : text.arriveBy(formatDeadline(job.deliveryTime + (cab - now), cab, text.days, clock))
+          : text.jobLeft(formatTimeLeft(job.deliveryTime - now, text))
         : null
+    const city = cityName(job.destinationCity, labels)
     return {
       kicker: text.delivery,
-      title: job.destinationCompany || job.destinationCity,
-      subtitle: job.destinationCompany ? job.destinationCity : null,
+      title: companyName(job.destinationCompany) || city,
+      subtitle: job.destinationCompany ? city : null,
       detail: deadline ? `${deadline} · ${distance}` : distance,
       late,
     }

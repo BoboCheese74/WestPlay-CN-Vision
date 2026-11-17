@@ -74,6 +74,9 @@ export const words: CompanionWords = {
     coachPassengersDetail: 'Visi virs sēdekļiem',
     coachNote: 'Šī autobusa pasažieru skaļruņi: {n}, visi vienlaikus. Ar vāju procesoru spēle var raustīties.',
     coachNoteAny: 'Autobusā pasažieru skaļruņi skan visi vienlaikus. Ar vāju procesoru spēle var raustīties.',
+    display: 'Truck Screen',
+    displayFirst: 'WestPlay tablet',
+    displayFirstDetail: 'WestPlay fills the tablet first, even in a truck whose own screen shows it.',
     elevated: {
       title: 'Spēle darbojas kā administrators',
       text: 'Tāpēc WestPlay nevar nolasīt spēles maršrutu, norādes un laikapstākļus. Palaid spēli parastā veidā, nevis kā administratoram.',

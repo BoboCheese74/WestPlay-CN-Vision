@@ -34,12 +34,17 @@ export const RECENTS_LIMIT = APP_IDS.length
  */
 const SIDEBAR_SLOTS: readonly (readonly AppId[])[] = [
   ['maps'],
-  ['music', 'spotify', 'youtubeMusic', 'player', 'podcasts'],
+  // The music slots: the sites stand in the older apps' ids (apps/AppScreen), their own two (Douyin,
+  // Kugou Music) beside them; Safari has a slot of its own too, so 2.3.0's browser is a press away.
+  ['music', 'spotify', 'youtubeMusic', 'player', 'podcasts', 'douyin', 'kugou'],
   ['phone', 'messages'],
-  ['calendar', 'weather', 'settings', 'safari'],
+  ['calendar', 'weather'],
+  // The truck's own condition, from the game's telemetry.
+  ['vehicle'],
+  ['settings', 'safari'],
 ]
 
-/** At most this many: the fourth (Calendar, Weather, Settings or Safari) only where the screen has room
+/** At most this many: the last slots (the truck, Settings and Safari) only where the screen has room
  * (`ScreenProfile.recents`). */
 export const SIDEBAR_SLOT_COUNT = SIDEBAR_SLOTS.length
 

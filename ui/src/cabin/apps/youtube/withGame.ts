@@ -19,8 +19,20 @@ export function withGame(
   return null
 }
 
-/** Whether the truck's electrics just went off: the video stops (paused, and left so: nothing plays it on
- * again by itself, not the game coming back nor the power). */
+/** Whether the truck's electrics just went off: the video stops (paused, and left so until the electrics come
+ * back: `poweredOn`). */
 export function poweredOff(wasOff: boolean, off: boolean): boolean {
   return off && !wasOff
+}
+
+/**
+ * Whether the truck's electrics just came back (they were off, and aren't now): what WestPlay stopped for them
+ * plays on again by itself (musicWithGame.ts, web/pauseWithPower.ts).
+ *
+ * Apple Music's own rule is the opposite — it stays paused, and the player presses play (owner 2026-10-21) —
+ * but the owner asked for the music to come back with the electrics (2026-10-31). Bilibili is left out of it
+ * (a video starting again by itself isn't wanted there: `playsOnWithPower`).
+ */
+export function poweredOn(wasOff: boolean, off: boolean): boolean {
+  return wasOff && !off
 }

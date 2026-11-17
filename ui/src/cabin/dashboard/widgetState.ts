@@ -32,7 +32,16 @@ export function useAnyWidget(): boolean {
   const guided = useGuided()
   const destination = useDestinationView() !== EMPTY
   const weather = useLive((state) => state.weather !== null)
-  return guided || widgets.nowPlaying || (widgets.destination && destination) || (widgets.weather && weather)
+  return (
+    guided ||
+    widgets.nowPlaying ||
+    (widgets.destination && destination) ||
+    (widgets.weather && weather) ||
+    // A picture and the truck's status are there as soon as they're turned on (the status says it's waiting
+    // for the game rather than hide).
+    widgets.photo ||
+    widgets.vehicle
+  )
 }
 
 /** Whether turn-by-turn shows: while the route has a step to show (as GuidanceCard decides). */

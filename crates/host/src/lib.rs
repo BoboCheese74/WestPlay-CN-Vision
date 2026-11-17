@@ -29,15 +29,20 @@ mod pointer;
 pub mod route;
 mod route_change;
 mod safari;
+mod qq_music;
+pub mod qq_layer;
 #[cfg(test)]
 mod gpu_contention;
 pub mod settings;
 mod signin;
+mod weblogin;
 pub mod speakers;
 mod spotify;
+mod traffic_lights;
 pub mod startup;
 mod typing;
 mod weather;
+mod webapp;
 mod webview;
 mod worker;
 mod youtube;
@@ -48,7 +53,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::time::{Duration, Instant};
 
-use westplay_shared::{BridgeMapping, JobInfo, Keybind, Telemetry, TruckInfo, screen_layouts};
+use westplay_shared::{BridgeMapping, JobInfo, Keybind, Telemetry, TrailerInfo, TruckInfo, screen_layouts};
 use windows::Win32::Foundation::LUID;
 use windows::Win32::System::Com::{COINIT_APARTMENTTHREADED, CoInitializeEx};
 use windows::Win32::UI::WindowsAndMessaging::{DispatchMessageW, MSG, PM_REMOVE, PeekMessageW, TranslateMessage};
@@ -102,13 +107,17 @@ pub struct Status {
     /// Whether the truck the player is in is one WestPlay shows in, as the plugin last saw (`None`: not known yet,
     /// or no game).
     pub truck_supported: Option<bool>,
-    /// The coach the player drives: how many speakers its passengers' set plays through (its body's, from the
-    /// save's fitted parts). `None` in a truck, with no game, or before the coach's parts are read: the companion's
-    /// Coach speakers greyed out then (owner 2026-11-13).
+    /// The coach the player drives: how many speakers its passengers' set plays through (its body's,
+    /// from the save's fitted parts). `None` in a truck, with no game, or before the coach's parts are
+    /// read: the companion's Coach speakers is greyed out then (owner 2026-11-13).
     pub coach_speakers: Option<u32>,
     /// Whether the game runs as administrator: WestPlay can't read its route, guidance or weather then
     /// ([`is_elevated`]), and the player is told to start it normally.
     pub game_elevated: bool,
+    /// Whether the game's own WestPlay plugin is another build's: it can't be seen at all then (every build's
+    /// bridge is a name of its own), and WestPlay puts its own in as soon as the game closes
+    /// ([`keep_plugins_up_to_date`]). The companion says so.
+    pub plugin_outdated: bool,
     /// Whether WestPlay is open on the truck's screen (otherwise the truck's original screen shows, with
     /// WestPlay's button to come back), as the cabin page last said; `None` until it has.
     pub westplay_open: Option<bool>,
@@ -123,6 +132,9 @@ pub struct Status {
     /// window open.
     pub apple_music_signed_in: Option<bool>,
     pub apple_music_signing_in: bool,
+    /// Whether the sites the apps show are signed in (Bilibili, NetEase Cloud Music, QQ Music), and whether
+    /// each one's window is open (weblogin.rs).
+    pub web_logins: weblogin::Logins,
     /// The map of the profile played: ready, being built, waiting for the game to close...
     pub map: maps::MapStatus,
     /// The map the cab shows: its folder in WestPlay's maps, and when it was built (the companion's
@@ -141,6 +153,10 @@ pub struct AccountRequests {
     pub youtube: AccountRequest,
     pub spotify: AccountRequest,
     pub apple_music: AccountRequest,
+    /// The apps' own sites: Bilibili, NetEase Cloud Music, QQ Music (weblogin.rs).
+    pub bilibili: AccountRequest,
+    pub netease: AccountRequest,
+    pub qq_music: AccountRequest,
 }
 
 /// One service's request, the latest not carried out yet.
@@ -241,6 +257,73 @@ struct Pipeline {
     capture: Capture,
 }
 
+/// Whether the game's plugins are being looked at now: one pass at a time (a pass reads a few hundred kilobytes,
+/// and the passes are spawned from the loop as well as from the start).
+static PLUGINS_LOOKED_AT: AtomicBool = AtomicBool::new(false);
+
+/// The last thing said about a game's plugin: a game left running with another build's one can't be put right
+/// until it closes, and the passes every half minute mustn't say the same thing again each time.
+static PLUGIN_SAID: std::sync::Mutex<String> = std::sync::Mutex::new(String::new());
+
+/// Whether a game found was left with another build's plugin (the companion says so: the game can't be seen at
+/// all until this WestPlay's is in, and that has to wait for the game to close).
+static PLUGIN_OUTDATED: AtomicBool = AtomicBool::new(false);
+
+/// Says `message` in the log, once while it stays the same line.
+fn said_plugin(message: String) {
+    let mut said = PLUGIN_SAID.lock().unwrap_or_else(|poison| poison.into_inner());
+    if *said == message {
+        return;
+    }
+    log!("{message}");
+    *said = message;
+}
+
+/// The game's own copy of WestPlay's plugin, put back to this build's (`westplay.dll`, the one shipped beside
+/// this exe). A game left with another build's plugin can't talk to this WestPlay at all — every build's bridge
+/// is a name of its own (`westplay_shared::BRIDGE_VERSION`) — so the game says nothing of itself and the
+/// companion shows it as not running (a player's other machine, 2026-11-01: the plugin there logged 24 telemetry
+/// channels where this build has 33, and 2.1.4's bridge is `v26`; the plugin in that game wasn't this one).
+///
+/// A plugin can't be replaced while the game has it open, so this runs at the start, again as the game closes
+/// (the first moment the file is free), and every half minute while no game is seen at all: a game left with the
+/// old one is put right without the player having to reinstall anything.
+fn keep_plugins_up_to_date() {
+    use westplay_setup::game;
+    use westplay_setup::plugin::{self, State};
+    if PLUGINS_LOOKED_AT.swap(true, Ordering::AcqRel) {
+        return;
+    }
+    let ours = std::env::current_exe()
+        .ok()
+        .and_then(|exe| exe.parent().map(|dir| dir.join(plugin::FILE_NAME)));
+    let mut outdated = false;
+    for found in westplay_setup::game::Kind::ALL.into_iter().flat_map(game::find) {
+        let Some(ours) = ours.as_deref().filter(|ours| ours.is_file()) else { break };
+        match plugin::state(&found, ours) {
+            Ok(State::Current) => {}
+            Ok(state) => {
+                let said = if matches!(state, State::Missing) { "missing" } else { "another build's" };
+                match plugin::install(&found, ours) {
+                    Ok(_) => said_plugin(format!(
+                        "the game's WestPlay plugin was {said}: this build's put in {} (the game starts it next time it runs)",
+                        found.dir.display()
+                    )),
+                    Err(error) => {
+                        outdated = true;
+                        said_plugin(format!(
+                            "the game's WestPlay plugin is {said} and can't be replaced now ({error}): that's why the game says nothing of itself — close the game and start WestPlay again"
+                        ));
+                    }
+                }
+            }
+            Err(error) => said_plugin(format!("couldn't read the game's WestPlay plugin: {error}")),
+        }
+    }
+    PLUGIN_OUTDATED.store(outdated, Ordering::Release);
+    PLUGINS_LOOKED_AT.store(false, Ordering::Release);
+}
+
 /// Runs until `stop` is set. Blocks the calling thread, which becomes the WebView2 UI thread.
 pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
     startup::mark("host: started");
@@ -251,6 +334,9 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
     let host = &bridge.bridge().host;
     host.pid.store(std::process::id(), Ordering::Release);
     startup::mark("host: game bridge open");
+    // The game's own plugin, put right where it isn't this build's (in the background: it reads files and, only
+    // where it must, writes one).
+    std::thread::spawn(keep_plugins_up_to_date);
 
     let stage = Stage::new(config.width, config.height)?;
     // The GPU the cab is drawn on (graphics.rs): the player's choice, the game's if it's running, or Windows'
@@ -262,7 +348,7 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
     if let Some(luid) = cab_gpu {
         log!("the cab is drawn on {}", graphics::name_of(luid, &adapters).unwrap_or_default());
     }
-    let webview = cab_webview(&stage, config.width, config.height, &config.data_dir.join("webview2"))?;
+    let webview = OffscreenWebView::new(&stage, config.width, config.height, &config.data_dir.join("webview2"))?;
     stage.add(&webview, true)?;
     startup::mark("host: cabin browser (WebView2) ready");
     match &config.content {
@@ -317,6 +403,8 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
         adapters: adapters.clone(),
         ..Default::default()
     };
+    // The sites' sign-ins, on the profiles the apps' pages use (weblogin.rs).
+    let web_logins = weblogin::WebLogins::new(&config.data_dir);
 
     let mut pipeline: Option<Pipeline> = None;
     let mut generation_counter = 0u32;
@@ -328,8 +416,15 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
     let mut nearby_sent: Option<u64> = None;
     let mut last_nearby_post = Instant::now();
     let mut last_telemetry: Option<Telemetry> = None;
+    // Whether the game's fatigue simulation is on, as last told the page (sent again to a reloaded page).
+    let mut fatigue_sent: Option<bool> = None;
+    // The traffic lights ahead, read from the game's own memory (traffic_lights.rs): the SDK has no
+    // channel for them. The cabin's guidance shows the next one's state and countdown.
+    let traffic_lights = traffic_lights::TrafficLights::new();
+    let mut last_traffic_light: Option<traffic_lights::Light> = None;
     let mut last_truck: Option<TruckInfo> = None;
     let mut last_job: Option<JobInfo> = None;
+    let mut last_trailer: Option<TrailerInfo> = None;
     let mut last_layout: Option<u32> = None;
     // The game's menu gone while it's still paused (`camera::MenuGone`), and as last told to the page.
     let mut menu = camera::MenuGone::default();
@@ -338,6 +433,9 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
     let mut was_outside = false;
     // The players' tone (the cab's Settings › Equalizer), passed on with the cab ([`settings::SoundSettings`]).
     let mut equalizer = config.settings.get().sound.playing();
+    // And whether the sound comes from the truck's own speakers, each heard from where it sits in the cab (the
+    // cab's Settings › Sound): off, the players are told no speakers at all (FIXES §72).
+    let mut spatial = config.settings.get().sound.spatial;
     // The music's spectrum wanted by the cab (its Equalizer open): asked of the players with the cab.
     let mut spectrum = false;
     // The screen's light (`brightness.rs`), as the page's Settings set it: full till it says.
@@ -379,6 +477,8 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
     let mut game_running = false;
     // Whether the game runs as administrator (`is_elevated`), looked at once for each game (its pid).
     let (mut elevated_pid, mut game_elevated) = (0, false);
+    // When the game's own plugin was last looked at (`keep_plugins_up_to_date`): at once while no game is seen.
+    let mut plugin_checked: Option<Instant> = None;
     // Whether the game runs under TruckersMP (its client's module loaded in it), as last told the page, and
     // when that was last looked for (every few seconds while the game runs and it isn't found).
     let mut truckersmp = false;
@@ -440,6 +540,22 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
     let mut youtube_music_state: Option<youtube_music::State> = None;
     let (mut youtube_music_window_open, mut youtube_music_confirming) = (false, false);
     let mut youtube_music_playback: Option<String> = None;
+    // The web app (a streaming site's own page: Bilibili, QQ Music or NetEase Cloud Music) while the page shows
+    // one, how it is (sent again when the page reloads), and the field of its page the player's keyboard types
+    // into (its number, 0: none, as the game plugin reads it).
+    let mut webapp: Option<webapp::WebApp> = None;
+    // QQ Music's own player (ui/src/cabin/apps/qq): its hidden page, and what it last said.
+    let mut qq_music: Option<qq_music::QqMusic> = None;
+    // The app's questions that came before its Start: asked again once the page is up.
+    let mut qq_music_early: Vec<qq_music::Command> = Vec::new();
+    let mut webapp_message: Option<String> = None;
+    let mut webapp_typed = 0u32;
+    let mut webapp_selected = 0u32;
+    // The cabin's own Chinese input method is reading the player's keys for the page's field: they're kept
+    // out of the page itself meanwhile (the page would take the letters the composition is reading).
+    let mut ime_takes_keys = false;
+    // The song it last said its page plays (its words change line by line: each isn't news for the log).
+    let mut webapp_song: Option<String> = None;
     // Player's own player (music_folder.rs), while the page uses it, and what it last said played.
     let mut music_player: Option<music_folder::Player> = None;
     let mut music_player_playback: Option<String> = None;
@@ -551,6 +667,54 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
                 AccountAction::Check => apple_music::Command::Start,
             });
         }
+        // The companion's Bilibili, NetEase Cloud Music and QQ Music sign-ins: their own pages in a window on the
+        // desktop, on the profiles the apps in the cab show them on (weblogin.rs).
+        for (request, which) in [
+            (&config.accounts.bilibili, weblogin::Site::Bilibili),
+            (&config.accounts.netease, weblogin::Site::Netease),
+            (&config.accounts.qq_music, weblogin::Site::QqMusic),
+        ] {
+            if let Some(action) = request.take() {
+                // The site's own page in the cabin, if it's open: its WebView2 environment (its cookies).
+                // QQ Music's own player is that page for its site (its hidden page, on a profile of its
+                // own): its environment, or the sign-in window would sign in on another profile and its
+                // cookies would never reach the page that plays (owner 2026-11-16: signed in again at
+                // every start).
+                let open_in = if which == weblogin::Site::QqMusic {
+                    qq_music.as_ref().map(|app| app.environment().clone())
+                } else {
+                    webapp
+                        .as_ref()
+                        .filter(|app| app.site() == which.app())
+                        .map(|app| app.environment().clone())
+                };
+                web_logins.command(which, action, open_in.as_ref());
+            }
+        }
+        // Signed in: the app's page loads again, signed in as its window now is.
+        for (which, done) in web_logins.take_reports() {
+            if done == weblogin::Done::SignedIn
+                && let Some(app) = &webapp
+                && app.site() == which.app()
+            {
+                let _ = app.command(&webapp::Command::Reload);
+            }
+            // QQ Music's own player: its sign-in window's cookies go to its hidden page, which
+            // re-sends them to the layer (its account pool then has them: qq_music.rs's `apply_cookies`).
+            if done == weblogin::Done::SignedIn && which == weblogin::Site::QqMusic {
+                let taken = web_logins.take_cookies(weblogin::Site::QqMusic);
+                log!(
+                    "[qq music] signed in: layer running {}, cookies {}",
+                    qq_music.is_some(),
+                    taken.as_deref().map_or("none".to_owned(), |c| format!("{} chars", c.len()))
+                );
+                if let (Some(app), Some(cookies)) = (&qq_music, taken) {
+                    let posted = app.apply_cookies(&cookies);
+                    log!("[qq music] credential posted: {posted:?}");
+                }
+            }
+        }
+        status.web_logins = web_logins.state();
 
         // Checked often so the game is picked up right away when it starts or switches GPU.
         if last_check.elapsed() >= Duration::from_millis(200) {
@@ -568,13 +732,19 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
                 if !running {
                     players_closing = true;
                     log!("the game closed: its web players are closed");
+                    // Its plugin file is free now: a build's other than this one is put right without a restart.
+                    plugin_checked = Some(Instant::now());
+                    std::thread::spawn(keep_plugins_up_to_date);
                 }
                 let _ = webview.post_json(&game_message(running));
             }
             let pid = bridge.bridge().plugin.pid.load(Ordering::Relaxed);
             if pid != elevated_pid {
                 elevated_pid = pid;
-                game_elevated = is_elevated(pid);
+                // Only where it keeps WestPlay out: with UAC off every process is elevated, WestPlay too, and
+                // they read each other freely — the player has nothing to start otherwise (2026-10-28, ours;
+                // upstream's says elevated whenever the game is).
+                game_elevated = is_elevated(pid) && !is_elevated(std::process::id());
                 if game_elevated {
                     log!("the game runs as administrator: WestPlay can't read its route, guidance or weather");
                 }
@@ -631,6 +801,8 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
                         status.adapter = Some(built.gpu.adapter_name.clone());
                         status.error = None;
                         built.capture.set_light(screen_light);
+                        // A new capture comes at the standard rate: put the player's own on it.
+                        built.capture.set_fps(config.settings.get().screen.refresh_rate.hz());
                         pipeline = Some(built);
                     }
                     Err(e) => status.error = Some(format!("capture pipeline failed: {e}")),
@@ -653,6 +825,18 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
                 // moving.
                 let alive = game_liveness.update(plugin.heartbeat.load(Ordering::Relaxed), Instant::now());
                 status.game_connected = plugin.pid.load(Ordering::Relaxed) != 0 && alive && bridge.matches();
+                status.coach_speakers = coach_sets
+                    .as_ref()
+                    .filter(|_| status.game_connected)
+                    .map(|(_, passengers)| passengers.len() as u32);
+                // No game seen at all: its plugin may be another build's (that's why it can't be seen), so it's
+                // looked at every half minute — the one thing a player can't be expected to work out themselves.
+                if !status.game_connected
+                    && plugin_checked.is_none_or(|at| at.elapsed() >= Duration::from_secs(30))
+                {
+                    plugin_checked = Some(Instant::now());
+                    std::thread::spawn(keep_plugins_up_to_date);
+                }
                 // A plugin of another version (the game still running from before an update): not used.
                 if !bridge.matches() && plugin.pid.load(Ordering::Relaxed) != 0 {
                     status.error = Some("the game's WestPlay plugin is another version: restart the game".into());
@@ -671,17 +855,19 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
                     westplay_shared::TRUCK_UNSUPPORTED => Some(false),
                     _ => None,
                 };
-                status.coach_speakers = coach_sets
-                    .as_ref()
-                    .filter(|_| status.game_connected)
-                    .map(|(_, passengers)| passengers.len() as u32);
                 status.game_elevated = status.game_connected && game_elevated;
+                // A game that isn't seen at all may be one with another build's plugin in it (the companion says
+                // so, with what to do about it). A game that is seen has this build's, whatever the files say.
+                status.plugin_outdated = !status.game_connected && PLUGIN_OUTDATED.load(Ordering::Relaxed);
                 let mut profiles = vec![(performance::Profile::Cab, webview.environment())];
                 if let Some(spotify) = &spotify {
                     profiles.push((performance::Profile::Spotify, spotify.view().environment()));
                 }
                 if let Some(apple_music) = &apple_music {
                     profiles.push((performance::Profile::AppleMusic, apple_music.view().environment()));
+                }
+                if let Some(app) = &webapp {
+                    profiles.push((performance::Profile::WebApp(app.site().name()), app.view().environment()));
                 }
                 let sample = status.game_connected.then(|| performance::Sample {
                     game_frames: plugin.heartbeat.load(Ordering::Relaxed),
@@ -726,9 +912,18 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
             for (slot, value) in host.keybinds.iter().zip(config.settings.get().keybinds.bridge_values()) {
                 slot.store(value, Ordering::Release);
             }
+            // Which of the two screens WestPlay fills (Truck Screen › Display priority): the plugin keeps the
+            // other one as the game's own.
+            host.tablet_first.store(u32::from(config.settings.get().screen.tablet_first), Ordering::Release);
+            // The screen's refresh rate (Settings › Appearance): what the capture publishes at from here on.
+            let rate = config.settings.get().screen.refresh_rate;
+            if let Some(pipeline) = &pipeline {
+                pipeline.capture.set_fps(rate.hz());
+            }
             let _ = webview.post_json(&settings_message(&config.settings.get()));
         }
-        // Over Safari's tab shown, the mouse is its page's.
+        // Over Safari's tab shown, the mouse is its page's; over a streaming site's page (the web app), that
+        // page's (no covers and no zoom of its own: the wheel's zoom goes to the page itself, below).
         let web = safari.as_ref().and_then(|browser| {
             browser.shown().map(|(shown, view)| pointer::WebArea {
                 view,
@@ -738,13 +933,26 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
                 zoom: browser.page_zoom(shown.tab).unwrap_or(shown.zoom),
             })
         });
-        // Under the game's parking camera the screen takes no mouse.
-        let plugin = &bridge.bridge().plugin;
-        let covered = westplay_shared::parking_camera_shown(
-            plugin.parking_frame.load(Ordering::Acquire),
-            plugin.heartbeat.load(Ordering::Acquire),
-        );
-        let mouse = pointer.update(&plugin.pointer, &webview, web, covered);
+        let placed = webapp.as_ref().and_then(|app| {
+            app.place().map(|(x, y, width, height)| pointer::WebArea {
+                view: app.view(),
+                area: safari::Rect { x, y, width: width as f32, height: height as f32 },
+                covers: &[],
+                zoom: 1.0,
+                // DevTools, as 2.3.0 gives it: its `mouseWheel` reaches the page's own list scrolling and its
+                // events are asynchronous (2.2.2's `send_mouse` here left Bilibili's lists unmoved and its
+                // videos unopened; owner 2026-11-13). The coordinates are the page's CSS pixels, hence `zoom`.
+            })
+        });
+        let mouse = pointer.update(&bridge.bridge().plugin.pointer, &webview, web.or(placed), false);
+        // The right Ctrl with the wheel over a site's page: its own pixels larger or smaller, the player's own
+        // zoom on top of the fit (`webapp::WebApp::zoom_by`; only while the right Ctrl is held: the left one is
+        // the game's, with the wheel, for the gearbox).
+        if mouse.zoom != 0
+            && let Some(app) = &webapp
+        {
+            app.zoom_by(mouse.zoom);
+        }
         cursor.follow(mouse, Instant::now());
         // The player's keybinds pressed (and the volume keys held) in the game: the page acts on each.
         for keybind in Keybind::ALL {
@@ -774,19 +982,24 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
             }
             let message = route_message_for(&update);
             match update {
-                RouteUpdate::Next(_) => route_next_message = Some(message.clone()),
+                RouteUpdate::Next(index) => {
+                    traffic_lights.set_route_next(index);
+                    route_next_message = Some(message.clone());
+                }
                 RouteUpdate::Paths { .. } => route_paths_message = Some(message.clone()),
                 RouteUpdate::Offered { .. } => {}
                 RouteUpdate::Route { id, nodes, waypoints } => {
                     route_number = Some(id);
                     route_uids = Some(nodes.iter().map(|node| node.uid).collect());
                     route_waypoints = waypoints;
+                    traffic_lights.set_route(nodes.iter().map(|node| node.position).collect());
                     (route_message, route_paths_message, route_next_message) = (Some(message.clone()), None, None);
                 }
                 RouteUpdate::None => {
                     route_number = None;
                     route_uids = None;
                     route_waypoints.clear();
+                    traffic_lights.clear_route();
                     (route_message, route_paths_message, route_next_message) = (Some(message.clone()), None, None);
                 }
             }
@@ -855,8 +1068,10 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
                     cursor_told = None;
                     startup::mark("page: running (its scripts loaded)");
                     last_telemetry = None;
+                    fatigue_sent = None;
                     last_truck = None;
                     last_job = None;
+                    last_trailer = None;
                     last_layout = None;
                     typing_state = None;
                     let route = route_message
@@ -909,6 +1124,9 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
                     if let Some(message) = &customize_message {
                         let _ = webview.post_json(message);
                     }
+                    if let Some(message) = &webapp_message {
+                        let _ = webview.post_json(message);
+                    }
                     let youtube = youtube_message.iter().chain(&youtube_account_message);
                     let all = player_messages.iter().chain(route).chain(&weather_message).chain(youtube);
                     for message in all {
@@ -922,7 +1140,7 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
                     }
                 }
                 Some(PageMessage::Startup { stage }) => startup::mark(&format!("page: {stage}")),
-                Some(PageMessage::Guidance { line }) => log!("route: the cab's guidance, {line}"),
+        Some(PageMessage::Log { text }) => log!("cabin: {text}"),
                 Some(PageMessage::TruckStrip { strip }) => {
                     let mut settings = config.settings.get();
                     if settings.screen.truck_strip != strip {
@@ -930,6 +1148,32 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
                         config.settings.set(settings.clone());
                         (config.on_settings)(&settings);
                     }
+                }
+                Some(PageMessage::RefreshRate { rate }) => {
+                    let mut settings = config.settings.get();
+                    if settings.screen.refresh_rate != rate {
+                        settings.screen.refresh_rate = rate;
+                        config.settings.set(settings.clone());
+                        (config.on_settings)(&settings);
+                    }
+                }
+                Some(PageMessage::TrafficLights { on }) => traffic_lights.set_enabled(on),
+                Some(PageMessage::PerformanceMode { on }) => {
+                    let mut settings = config.settings.get();
+                    if settings.screen.performance_mode != on {
+                        settings.screen.performance_mode = on;
+                        config.settings.set(settings.clone());
+                        (config.on_settings)(&settings);
+                    }
+                }
+                Some(PageMessage::Ime { on }) => {
+                    if ime_takes_keys != on {
+                        log!(
+                            "webapp: the cabin's input method {} the player's keys",
+                            if on { "takes" } else { "lets go of" }
+                        );
+                    }
+                    ime_takes_keys = on;
                 }
                 Some(PageMessage::Spectrum { on }) => spectrum = on,
                 Some(PageMessage::Brightness { level }) => {
@@ -944,6 +1188,7 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
                         cursor.set_light(light, Instant::now());
                     }
                 }
+                Some(PageMessage::CursorLight { light }) => cursor.set_light(light, Instant::now()),
                 Some(PageMessage::CursorArea { area }) => cursor.set_area(Some(area)),
                 Some(PageMessage::Equalizer { equalizer: curve, custom }) => {
                     let mut settings = config.settings.get();
@@ -952,6 +1197,15 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
                     equalizer = sound.playing();
                     if settings.sound != sound {
                         settings.sound = sound;
+                        config.settings.set(settings.clone());
+                        (config.on_settings)(&settings);
+                    }
+                }
+                Some(PageMessage::Spatial { on }) => {
+                    spatial = on;
+                    let mut settings = config.settings.get();
+                    if settings.sound.spatial != on {
+                        settings.sound.spatial = on;
                         config.settings.set(settings.clone());
                         (config.on_settings)(&settings);
                     }
@@ -1010,11 +1264,87 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
                         }
                     }
                 }
+                Some(PageMessage::WebApp { command }) => match command {
+                    webapp::Command::Close => {
+                        if let Some(app) = webapp.take() {
+                            app.close(&stage);
+                        }
+                        webapp_message = None;
+                        webapp_selected = 0;
+                        bridge.bridge().typing.selection.store(0, Ordering::Release);
+                        let _ = webview.post_json(&webapp::state_message(None));
+                    }
+                    webapp::Command::Open { site } => {
+                        // One site at a time: another closes the one running (signed in as it was: its
+                        // WebView2 profile stays).
+                        if webapp.as_ref().is_some_and(|app| app.site() != site) {
+                            if let Some(closing) = webapp.take() {
+                                closing.close(&stage);
+                            }
+                        }
+                        if let Some(app) = start_webapp(&mut webapp, site, &stage, &config) {
+                            let message = webapp::state_message(Some(&app.state()));
+                            let _ = webview.post_json(&message);
+                            webapp_message = Some(message);
+                        }
+                    }
+                    command => {
+                        if let Some(app) = &webapp {
+                            let _ = app.command(&command);
+                            // Hidden (the app left the screen): the page's field, if any, lets the keyboard go.
+                            if matches!(command, webapp::Command::Hide) {
+                                webapp_selected = 0;
+                                bridge.bridge().typing.selection.store(0, Ordering::Release);
+                            }
+                        }
+                    }
+                },
                 Some(PageMessage::Player { command }) => {
                     if music_player.is_none() && matches!(command, music_folder::Command::Pause) {
                         // Nothing to pause: Player's player isn't running.
                     } else if let Some(player) = start_music_player(&mut music_player, &stage, &config, music_dir.as_deref()) {
                         let _ = player.command(&command);
+                    }
+                }
+                Some(PageMessage::QqMusic { command }) => {
+                    log!("[qq music] command from the page: {command:?}");
+                    if qq_music.is_none() {
+                        // The app's own questions come before its Start (it asks as it first draws):
+                        // kept, and asked again once the page is up (qq_music.rs's `unanswered` does
+                        // that for a page that reloads; here nothing was running yet to ask it).
+                        match &command {
+                            qq_music::Command::Start => {
+                                if let Some(app) = start_qq_music(&mut qq_music, &stage, &config) {
+                                    let _ = app.command(&command);
+                                    for waiting in qq_music_early.drain(..) {
+                                        let _ = app.command(&waiting);
+                                    }
+                                }
+                                // Its sign-in window is the host's own (below), and it asks for it
+                                // here rather than in a match arm nothing reaches.
+                                if matches!(command, qq_music::Command::SignIn) {
+                                    config.accounts.qq_music.request(AccountAction::SignIn);
+                                }
+                            }
+                            qq_music::Command::Ask { .. } => qq_music_early.push(command),
+                            // The sign-in window is the host's, not the hidden page's: asked for even
+                            // with no page running yet (its cookies are what the page is for).
+                            qq_music::Command::SignIn => {
+                                config.accounts.qq_music.request(AccountAction::SignIn);
+                            }
+                            // A control with nothing playing: nothing to tell.
+                            _ => {}
+                        }
+                        continue;
+                    }
+                    if let Some(app) = qq_music.as_ref() {
+                        let _ = app.command(&command);
+                    }
+                    // The site's own sign-in window: the host's (weblogin.rs), not the hidden page's
+                    // (qq_music.rs's `for_page` leaves SignIn out). Its cookies come back to the page
+                    // once it's done.
+                    if matches!(command, qq_music::Command::SignIn) {
+                        config.accounts.qq_music.request(AccountAction::SignIn);
                     }
                 }
                 Some(PageMessage::Safari { command }) => {
@@ -1034,7 +1364,12 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
                     }
                 }
                 Some(PageMessage::Typing { selection }) => {
-                    bridge.bridge().typing.selection.store(selection, Ordering::Release);
+                    // While the site's page has the field (WebApp's), the cabin's keyboard is typing into that
+                    // page: its selection numbers aren't the page's, so the host's own stands (the game's keys
+                    // are let through by it).
+                    if webapp_selected == 0 {
+                        bridge.bridge().typing.selection.store(selection, Ordering::Release);
+                    }
                 }
                 Some(PageMessage::Routes { id, node, also }) => {
                     let to = u64::from_str_radix(&node, 16).unwrap_or(0);
@@ -1305,6 +1640,114 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
                     let message = youtube::state_message(Some(&state));
                     let _ = webview.post_json(&message);
                     youtube_message = Some(message);
+                }
+            }
+        }
+
+        // QQ Music's own player: what it says (its state, its answers, what it plays), sent on to the page.
+        if let Some(app) = &qq_music {
+            for report in app.take_reports() {
+                let message = match report {
+                    qq_music::Report::State(state) => qq_music::state_message(Some(&state)),
+                    qq_music::Report::Answer(answer) => qq_music::answer_message(&answer),
+                    qq_music::Report::Playback(playback) => {
+                        qq_music::playback_message(playback.as_deref())
+                    }
+                };
+                let _ = webview.post_json(&message);
+            }
+        }
+
+        // The web app's page: its own title (for the bar above it), and the field of its page the player's
+        // own keyboard types into. Its WebView failing closes it (the page opens it again).
+        if let Some(app) = &webapp {
+            // The player's own zoom (the right Ctrl with the wheel) catching up with the wheel: smoothly, every turn
+            // (webapp.rs `tick`, which is what makes it stepless).
+            app.tick(Instant::now());
+            if app.failed() || players_closing {
+                if players_closing {
+                    log!("[{}] closed with the game", app.site().log_name());
+                } else {
+                    log!("[{}] its browser failed: closed, the page opens it again", app.site().log_name());
+                }
+                if let Some(failed) = webapp.take() {
+                    failed.close(&stage);
+                }
+                webapp_message = None;
+                webapp_selected = 0;
+                webapp_song = None;
+                bridge.bridge().typing.selection.store(0, Ordering::Release);
+                let _ = webview.post_json(&webapp::state_message(None));
+                let _ = webview.post_json(&webapp::media_message(None));
+                let _ = webview.post_json(&webapp::lyrics_message(None));
+            } else {
+                let mut titled = false;
+        for report in app.take_reports() {
+                    match report {
+                        webapp::Report::State => titled = true,
+                        webapp::Report::Media(media) => {
+                            // The dashboard's Now Playing shows what the site plays as it shows WestPlay's own
+                            // players: its song, its cover, its line of words. The song is said once (its words'
+                            // line changing every few seconds isn't news).
+                            let song = media.as_ref().map(|media| {
+                                format!("{}|{}|{}", media.title, media.artist, media.playing)
+                            });
+                            if song != webapp_song {
+                                match &media {
+                                    Some(media) => {
+                                        let cover = media.artwork.as_deref().map(|url| &url[url.len().saturating_sub(40)..]);
+                                        log!(
+                                            "[{}] playing: {} — {} · cover {}",
+                                            app.site().log_name(),
+                                            media.title,
+                                            media.artist,
+                                            cover.unwrap_or("none"),
+                                        )
+                                    }
+                                    None => log!("[{}] nothing playing", app.site().log_name()),
+                                }
+                                webapp_song = song;
+                            }
+                            let _ = webview.post_json(&webapp::media_message(media.as_ref()));
+                        }
+                        webapp::Report::Spectrum(bars) => {
+                            let _ = webview.post_json(&speakers::spectrum_message(&bars));
+                        }
+                        webapp::Report::Lyrics(lyrics) => {
+                            match &lyrics {
+                                Some(lyrics) => {
+                                    log!("[{}] its words: {} lines", app.site().log_name(), lyrics.lines.len())
+                                }
+                                None => log!("[{}] no words for what it plays", app.site().log_name()),
+                            }
+                            let _ = webview.post_json(&webapp::lyrics_message(lyrics.as_ref()));
+                        }
+                        webapp::Report::LyricAt(at) => {
+                            let _ = webview.post_json(&webapp::lyric_at_message(at));
+                        }
+                        webapp::Report::Volume(level) => {
+                            let _ = webview.post_json(&webapp::volume_message(level));
+                        }
+                        webapp::Report::Typing { on, text } => {
+                            // The game's keys go into the page's field while one has the focus (the cabin
+                            // page's own fields are elsewhere: the site has the whole window), and the cabin's
+                            // keyboard comes up for it too, typing there through the host.
+                            if on {
+                                webapp_typed = webapp_typed.wrapping_add(1).max(1);
+                                webapp_selected = webapp_typed;
+                            } else {
+                                webapp_selected = 0;
+                            }
+                            bridge.bridge().typing.selection.store(webapp_selected, Ordering::Release);
+                            let message = webapp::typing_message(on, &text, webapp_selected);
+                            let _ = webview.post_json(&message);
+                        }
+                    }
+                }
+                if titled {
+                    let message = webapp::state_message(Some(&app.state()));
+                    let _ = webview.post_json(&message);
+                    webapp_message = Some(message);
                 }
             }
         }
@@ -1631,6 +2074,16 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
         let typed: Vec<u32> = std::iter::from_fn(|| typing_block.keys.pop()).collect();
         if let Some(message) = typing::typed_message(&typed, typing::clipboard_text) {
             let _ = webview.post_json(&message);
+            // The site's own field, while the player's keyboard types into it (the web app) — unless the cabin's own
+            // input method is reading those keys for it (`PageMessage::Ime`), in which case what it commits
+            // goes over whole (`webAppText`, as the cabin keyboard's own keys do).
+            if webapp_selected != 0
+                && typing_block.selection.load(Ordering::Acquire) == webapp_selected
+                && !ime_takes_keys
+                && let Some(app) = &webapp
+            {
+                let _ = app.type_message(&message);
+            }
         }
         let state = westplay_shared::TypingState::from_code(typing_block.state.load(Ordering::Acquire));
         if typing_state != Some(state) {
@@ -1667,16 +2120,24 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
             let distance = camera::Camera::distance(telemetry, outside).unwrap_or(0.0) as f32;
             let turn = game_settings.camera().steering_turn(telemetry.steering);
             let head = speakers::Head::of(telemetry).turned(turn);
-            // The truck's speakers: a coach's driver's or its passengers' as the companion's setting chooses; its
-            // parts' for a truck whose speakers come with them (none until they're found), else its own.
-            let truck_speakers = match (&coach_sets, &part_speakers) {
-                (Some((driver, passengers)), _) => Some(match config.settings.get().sound.coach {
-                    settings::CoachSpeakers::Driver => driver.as_slice(),
-                    settings::CoachSpeakers::Passengers => passengers.as_slice(),
-                }),
-                (None, Some(found)) if found.truck == *truck => found.speakers.as_deref(),
-                _ if speakers::by_parts(truck.id.as_str()) => None,
-                _ => speakers::in_truck(truck.id.as_str()),
+            // The truck's speakers: its parts' for a truck whose speakers come with them (none until they're
+            // found), else its own. Switched off in the cab's Settings › Sound, no speakers at all — the sound
+            // plays as it is (stereo), through the tone and the cab's walls alone, the way a truck WestPlay has
+            // no speakers for plays (FIXES §72).
+            let truck_speakers = if spatial {
+                match (&coach_sets, &part_speakers) {
+                    // A coach's: the driver's pair or its passengers', as the companion's setting says
+                    // (owner 2026-11-13: a coach has a cockpit system and a passengers' one).
+                    (Some((driver, passengers)), _) => Some(match config.settings.get().sound.coach {
+                        settings::CoachSpeakers::Driver => driver.as_slice(),
+                        settings::CoachSpeakers::Passengers => passengers.as_slice(),
+                    }),
+                    (None, Some(found)) if found.truck == *truck => found.speakers.as_deref(),
+                    _ if speakers::by_parts(truck.id.as_str()) => None,
+                    _ => speakers::in_truck(truck.id.as_str()),
+                }
+            } else {
+                None
             };
             if let Some(player) = &youtube {
                 let _ = player.cab(truck_speakers, head, outside, distance, equalizer, spectrum);
@@ -1688,6 +2149,11 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
                 let _ = player.cab(truck_speakers, head, outside, distance, equalizer, spectrum);
             }
             if let Some(player) = &spotify {
+                let _ = player.cab(truck_speakers, head, outside, distance, equalizer, spectrum);
+            }
+            // The web app's site (QQ Music, NetEase Cloud Music, Bilibili, Qingting FM): its sound through the
+            // truck's own speakers too, where the page's stream is one the browser lets out that way (webapp.rs).
+            if let Some(player) = &webapp {
                 let _ = player.cab(truck_speakers, head, outside, distance, equalizer, spectrum);
             }
             if let Some(player) = &music_player {
@@ -1712,6 +2178,14 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
 
         if last_telemetry_post.elapsed() >= Duration::from_millis(50) {
             last_telemetry_post = Instant::now();
+            // The game's fatigue simulation, read from its own config: with it off there's no forced rest, so
+            // the map's countdown goes away (FIXES §69).
+            let fatigue = game_settings.fatigue();
+            if fatigue_sent != Some(fatigue) {
+                fatigue_sent = Some(fatigue);
+                let message = serde_json::json!({ "type": "fatigue", "on": fatigue });
+                let _ = webview.post_json(&message.to_string());
+            }
             let plugin = &bridge.bridge().plugin;
             // A write the game never finished (it crashed in the middle) reads as nothing: nothing to send. A
             // game that closed leaves its last telemetry behind: not sent (a page reloading would power on).
@@ -1722,6 +2196,22 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
                 last_telemetry = Some(telemetry);
                 let message = serde_json::json!({ "type": "telemetry", "data": telemetry });
                 let _ = webview.post_json(&message.to_string());
+            }
+            // The traffic light ahead: the worker reads the game's semaphores from where the truck is; the
+            // page is told when it changes (its state or countdown).
+            if game_running {
+                if let Some(telemetry) = last_telemetry {
+                    traffic_lights.set_pose(telemetry.x as f32, telemetry.z as f32, telemetry.heading as f32);
+                } else {
+                    traffic_lights.clear_pose();
+                }
+            } else {
+                traffic_lights.clear_pose();
+            }
+            let light = traffic_lights.latest();
+            if light != last_traffic_light {
+                last_traffic_light = light.clone();
+                let _ = webview.post_json(&traffic_lights::message(light.as_ref()));
             }
             if let Some(truck) = plugin.truck.read()
                 && last_truck != Some(truck)
@@ -1756,6 +2246,15 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
             {
                 last_job = Some(job);
                 let message = serde_json::json!({ "type": "job", "data": job });
+                let _ = webview.post_json(&message.to_string());
+            }
+            // The trailer hitched (empty fields when there is none): the app shows its wear and its cargo's
+            // damage from the telemetry; which trailer it is comes from here.
+            if let Some(trailer) = plugin.trailer.read()
+                && last_trailer != Some(trailer)
+            {
+                last_trailer = Some(trailer);
+                let message = serde_json::json!({ "type": "trailer", "data": trailer });
                 let _ = webview.post_json(&message.to_string());
             }
             let layout = plugin.screen_layout.load(Ordering::Acquire);
@@ -2093,9 +2592,9 @@ fn stops_message(id: Option<u32>, route: Option<&[u64]>, waypoints: &[u64], hidd
 /// The most presses of a keybind the page is told of at once.
 const MOST_KEYBIND_PRESSES: u32 = 10;
 
-/// `{"type":"keybind","action":"volumeUp"|"volumeDown"|"playPause"|"nextTrack"|"previousTrack"|"brightnessDown"|
-/// "brightnessUp"}`: the player pressed a keybind in the game, or `held` a volume key (`KEYBIND_HOLD_MS`): Volume
-/// up's the next song, Volume down's the one before.
+/// `{"type":"keybind","action":"volumeUp"|"volumeDown"|"playPause"|"nextTrack"|"previousTrack"}`: the player
+/// pressed a keybind in the game, or `held` a volume key (`KEYBIND_HOLD_MS`): Volume up's the next song, Volume
+/// down's the one before.
 fn keybind_message(keybind: Keybind, held: bool) -> String {
     let action = match (keybind, held) {
         (Keybind::VolumeUp, false) => "volumeUp",
@@ -2143,6 +2642,47 @@ fn start_youtube<'a>(
         }
     }
     youtube.as_ref()
+}
+
+/// The web app's page for `site`, started as the page first shows it (on a WebView2 profile of the site's
+/// own), or `None` if it couldn't start (the page says so).
+/// QQ Music's own player (`ui/src/cabin/apps/qq`), started as its hidden page first asks for it (on a
+/// WebView2 profile of its own), or `None` if it couldn't start.
+fn start_qq_music<'a>(
+    qq_music: &'a mut Option<qq_music::QqMusic>,
+    stage: &Stage,
+    config: &Config,
+) -> Option<&'a qq_music::QqMusic> {
+    if qq_music.is_none() {
+        let user_data = config.data_dir.join("webview2-qq-music");
+        match qq_music::QqMusic::start(stage, config.width, config.height, &user_data) {
+            Ok(started) => {
+                log!("[qq music] opened");
+                *qq_music = Some(started)
+            }
+            Err(error) => startup::mark(&format!("host: QQ Music couldn't start: {error}")),
+        }
+    }
+    qq_music.as_ref()
+}
+
+fn start_webapp<'a>(
+    webapp: &'a mut Option<webapp::WebApp>,
+    site: webapp::Site,
+    stage: &Stage,
+    config: &Config,
+) -> Option<&'a webapp::WebApp> {
+    if webapp.is_none() {
+        let user_data = config.data_dir.join(site.profile());
+        match webapp::WebApp::start(stage, site, config.width, config.height, &user_data) {
+            Ok(started) => {
+                log!("[{}] opened", site.log_name());
+                *webapp = Some(started)
+            }
+            Err(e) => startup::mark(&format!("host: {} couldn't start: {e}", site.name())),
+        }
+    }
+    webapp.as_ref()
 }
 
 /// Apple Music's web player, started as the page first shows it (on a WebView2 profile of its own), or `None`
@@ -2283,17 +2823,22 @@ fn screen_message(layout: u32) -> String {
     serde_json::json!({ "type": "screen", "layout": id }).to_string()
 }
 
-/// `{"type":"settings","truckStrip":"auto","wallpaper":"plain","iconSet":null,"iconStyle":"auto","equalizer":…}`: the
-/// settings the cabin page applies itself (its language among them: one chosen, or `null`, the game's).
+/// `{"type":"settings","truckStrip":"auto","refreshRate":"60","performanceMode":false,"wallpaper":"plain","iconSet":null,"iconStyle":"auto","equalizer":…}`:
+/// the settings the cabin page applies itself (its refresh rate is the rate it draws its map at,
+/// `maps/frameCap.ts`, and the performance mode is what it gives up for it; what the capture publishes at is
+/// the host's own). Its language is among them too: one chosen, or `null`, the game's.
 fn settings_message(settings: &settings::Settings) -> String {
     serde_json::json!({
         "type": "settings",
         "truckStrip": settings.screen.truck_strip,
+        "refreshRate": settings.screen.refresh_rate,
+        "performanceMode": settings.screen.performance_mode,
         "wallpaper": settings.look.wallpaper,
         "iconSet": settings.look.icon_set,
         "iconStyle": settings.look.icon_style,
         "equalizer": settings.sound.equalizer.clamped(),
         "equalizerCustom": settings.sound.custom,
+        "spatial": settings.sound.spatial,
         "buildings": settings.map.buildings,
         "roads": settings.map.roads,
         "language": settings.language.as_ref().map(|code| code.as_str()),
@@ -2345,15 +2890,30 @@ enum PageMessage {
     Ready,
     /// A startup stage the page reached (the boot screens shown), for the startup log (`startup`).
     Startup { stage: String },
-    /// The cab's guidance (the next turn it shows, at which node, and how far), every 30 s while there's a route, for
-    /// the log (ui/src/cabin/maps/guidanceLog.ts).
-    Guidance { line: String },
+    /// A line for the host's log from the cabin page: what it decided and when (the players' power pause and
+    /// resume, a site's own answer), where the player's log can show it.
+    Log { text: String },
     /// Whether WestPlay is open on the truck's screen: posted as the page loads and whenever it changes.
     Westplay { open: bool },
     /// The wallpaper chosen in the cab's Settings (an id: `wallpapers.ts`), to keep with the settings.
     Wallpaper { id: String },
     /// The truck's information bar beside WestPlay, kept or not, chosen in the cab's Settings (Appearance).
     TruckStrip { strip: settings::TruckStrip },
+    /// How often WestPlay's screen is redrawn for the game, chosen in the cab's Settings (Display &
+    /// Performance): 60 Hz, or 30 Hz to lighten the load (`settings::RefreshRate`).
+    RefreshRate { rate: settings::RefreshRate },
+    /// Whether the next traffic light is read and shown (Settings › Maps): off, the host stops reading the
+    /// game's memory and the worker closes its handle.
+    TrafficLights { on: bool },
+    /// Whether the screen gives up some of its effects to run lighter, chosen in the cab's Settings (Display &
+    /// Performance): the cabin page applies it (`ui/src/cabin/performance.css`) and the host only keeps it
+    /// (`settings::ScreenSettings::performance_mode`).
+    PerformanceMode { on: bool },
+    /// Whether the cabin's own Chinese input method is taking the player's own keys for the *page's* field
+    /// (the cabin keyboard is in Chinese and a site's field is selected): while it is, the host keeps those
+    /// keys out of the page — the page's own field would take the letters the composition reads
+    /// (`ui/src/cabin/keyboard/pinyin.ts`).
+    Ime { on: bool },
     /// The players' tone, set in the cab's Settings (Equalizer): the player's curve (bass, mid and treble, dB
     /// each), and whether it plays (Custom) or the speakers as tuned (Recommended).
     Equalizer {
@@ -2362,6 +2922,9 @@ enum PageMessage {
         #[serde(default)]
         custom: bool,
     },
+    /// The truck's speakers, on or off, set in the cab's Settings (Sound): off, no speakers are passed to the
+    /// players, so a page plays its sound as it is (stereo), through the tone and the cab's walls alone.
+    Spatial { on: bool },
     /// The music's spectrum wanted (the cab's Equalizer open) or not: the players measure it, and it's passed
     /// on to the page as they say it.
     Spectrum { on: bool },
@@ -2380,10 +2943,15 @@ enum PageMessage {
     AppleMusic { command: apple_music::Command },
     /// A command for YouTube Music's web player (`youtubeMusic`): its sign-in, a question, its controls.
     YoutubeMusic { command: youtube_music::Command },
+    /// A command for the web app (`webApp`): a streaming site's own page (Bilibili, QQ Music, NetEase Cloud
+    /// Music), where it shows and what it does.
+    WebApp { command: webapp::Command },
     /// A command for Player's own player (`player`): what to play from the music folder, its controls.
     Player { command: music_folder::Command },
     /// What the Safari app asks of its pages (`safari`): a tab shown, loaded, typed into, and so on.
     Safari { command: safari::Command },
+    /// A command for QQ Music's own player (`qqMusic`): its questions, what it plays, how.
+    QqMusic { command: qq_music::Command },
     /// The text field selected on the page, a number that changes with every selection (0: none), for the
     /// player's own keyboard to type into (`typing`).
     Typing { selection: u32 },
@@ -2530,13 +3098,39 @@ fn same_luid(a: LUID, b: LUID) -> bool {
     a.LowPart == b.LowPart && a.HighPart == b.HighPart
 }
 
+/// Messages one [`pump_messages`] pass takes before it hands the host's turn back, and how long one may take.
+///
+/// A window that keeps asking to be drawn (WebView2, while the page under the mouse is dragged) refills this
+/// thread's queue at least as fast as a pass drains it: a pass that ended only with the queue would then never
+/// end, and the host's turn would never come again — no frames, so the truck's screen went blank until the
+/// queue let up (it did not: PL 2026-10-27, QQ Music's volume slider). Both limits keep the pass short enough
+/// for a frame after it.
+const PUMP_MESSAGES_MOST: u32 = 64;
+const PUMP_TIME_MOST: Duration = Duration::from_millis(4);
+
+/// [`pump_messages`] passes that ended on their limit, not on an empty queue: logged (rarely) as a sign of a
+/// page's own queue filling faster than the host drains it.
+static PUMP_CAPPED: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
 fn pump_messages() {
+    let started = Instant::now();
+    let mut taken = 0;
     // SAFETY: this thread's own messages, each passed on as Windows hands it; `msg` is a local.
     unsafe {
         let mut msg = MSG::default();
-        while PeekMessageW(&mut msg, None, 0, 0, PM_REMOVE).as_bool() {
+        while taken < PUMP_MESSAGES_MOST
+            && started.elapsed() < PUMP_TIME_MOST
+            && PeekMessageW(&mut msg, None, 0, 0, PM_REMOVE).as_bool()
+        {
             let _ = TranslateMessage(&msg);
             DispatchMessageW(&msg);
+            taken += 1;
+        }
+    }
+    if taken == PUMP_MESSAGES_MOST || started.elapsed() >= PUMP_TIME_MOST {
+        let capped = PUMP_CAPPED.fetch_add(1, Ordering::Relaxed) + 1;
+        if capped == 1 || capped % 2000 == 0 {
+            log!("messages: the queue filled faster than it could be drained ({capped} passes cut short, {taken} taken, {} ms)", started.elapsed().as_millis());
         }
     }
 }
@@ -2681,6 +3275,31 @@ mod tests {
         );
         assert_eq!(parse_page_message(r#"{"type":"truckStrip","strip":"sideways"}"#), None);
         assert_eq!(
+            parse_page_message(r#"{"type":"refreshRate","rate":"30"}"#),
+            Some(PageMessage::RefreshRate { rate: crate::settings::RefreshRate::Hz30 })
+        );
+        assert_eq!(
+            parse_page_message(r#"{"type":"trafficLights","on":false}"#),
+            Some(PageMessage::TrafficLights { on: false })
+        );
+        // A rate WestPlay doesn't offer is no message at all (and 60 by default in the settings file).
+        assert_eq!(parse_page_message(r#"{"type":"refreshRate","rate":"144"}"#), None);
+        assert_eq!(parse_page_message(r#"{"type":"refreshRate"}"#), None);
+        // The performance mode (Settings › Display & Performance): its effects given up, or not.
+        assert_eq!(
+            parse_page_message(r#"{"type":"performanceMode","on":true}"#),
+            Some(PageMessage::PerformanceMode { on: true })
+        );
+        assert_eq!(
+            parse_page_message(r#"{"type":"performanceMode","on":false}"#),
+            Some(PageMessage::PerformanceMode { on: false })
+        );
+        assert_eq!(parse_page_message(r#"{"type":"performanceMode"}"#), None);
+        // The cabin's own input method taking the player's keys for the page's field (and letting go).
+        assert_eq!(parse_page_message(r#"{"type":"ime","on":true}"#), Some(PageMessage::Ime { on: true }));
+        assert_eq!(parse_page_message(r#"{"type":"ime","on":false}"#), Some(PageMessage::Ime { on: false }));
+        assert_eq!(parse_page_message(r#"{"type":"ime"}"#), None);
+        assert_eq!(
             parse_page_message(r#"{"type":"equalizer","bass":-3,"mid":0,"treble":2,"custom":true}"#),
             Some(PageMessage::Equalizer {
                 equalizer: crate::speakers::Equalizer { bass: -3, mid: 0, treble: 2 },
@@ -2696,6 +3315,11 @@ mod tests {
             })
         );
         assert_eq!(parse_page_message(r#"{"type":"equalizer","bass":400}"#), None);
+        assert_eq!(parse_page_message(r#"{"type":"spatial","on":false}"#), Some(PageMessage::Spatial { on: false }));
+        assert_eq!(parse_page_message(r#"{"type":"spatial","on":true}"#), Some(PageMessage::Spatial { on: true }));
+        // No flag said: no message (the speakers stay as they are).
+        assert_eq!(parse_page_message(r#"{"type":"spatial"}"#), None);
+        assert_eq!(parse_page_message(r#"{"type":"spatial","on":"off"}"#), None);
         assert_eq!(parse_page_message(r#"{"type":"spectrum","on":true}"#), Some(PageMessage::Spectrum { on: true }));
         assert_eq!(
             parse_page_message(r#"{"type":"cursorLight","light":true}"#),
@@ -2847,23 +3471,33 @@ mod tests {
             serde_json::json!({
                 "type": "settings",
                 "truckStrip": "auto",
+                "refreshRate": "60",
+                "performanceMode": false,
                 "wallpaper": null,
                 "iconSet": null,
                 "iconStyle": "auto",
                 "equalizer": { "bass": 0, "mid": 0, "treble": 0 },
                 "equalizerCustom": false,
+                "spatial": true,
                 "buildings": true,
                 "roads": true,
                 "language": null,
             })
         );
         settings.screen.truck_strip = crate::settings::TruckStrip::Off;
+        settings.screen.refresh_rate = crate::settings::RefreshRate::Hz30;
+        settings.screen.performance_mode = true;
         settings.sound.equalizer = crate::speakers::Equalizer { bass: -9, mid: 2, treble: 6 };
+        settings.sound.spatial = false;
         settings.look.wallpaper = Some("custom:Dusk".into());
         settings.look.icon_set = Some("Retro".into());
         settings.language = crate::settings::LanguageCode::new("de_de");
         let message: serde_json::Value = serde_json::from_str(&settings_message(&settings)).unwrap();
         assert_eq!(message["truckStrip"], "off");
+        // The screen's refresh rate, chosen in the cab's Settings › Display & Performance (60 Hz by default).
+        assert_eq!(message["refreshRate"], "30");
+        // And its performance mode, chosen there too (off by default).
+        assert_eq!(message["performanceMode"], true);
         assert_eq!(message["language"], "de_de");
         assert_eq!(message["wallpaper"], "custom:Dusk");
         assert_eq!(message["iconSet"], "Retro");

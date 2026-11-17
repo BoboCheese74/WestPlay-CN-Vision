@@ -2,6 +2,7 @@ import maplibregl, { type GeoJSONSource } from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import workerUrl from 'maplibre-gl/dist/maplibre-gl-csp-worker.js?url'
 import { displayClock, mapFrameDue } from './frameCap'
+import { seaTilesProtocol } from './seaTiles'
 import { create as createStore } from 'zustand'
 import type { Telemetry } from '../../shared/host'
 import type { Appearance } from '../state/appearance'
@@ -17,14 +18,16 @@ import {
   dampBearing,
   easeInOut,
   FOLLOW_DELAY_MS,
+  followPitch,
+  followZoom,
   GLIDE_MS,
+  PITCH,
   samePose,
   type TruckSample,
   truckAt,
-  zoomForSpeed,
   zoomOffsetFor,
 } from './camera'
-import { buildingFilter, type Canopy, canopiesOver } from './buildings'
+import { buildingFilter, buildingsVisibility, type Canopy, canopiesOver } from './buildings'
 import { labelLines, placeLabels } from './labels'
 import { NO_ENTRY_ICON, drawNoEntry, drawPlaceIcon, parsePlaceIcon } from './placeIcons'
 import { type BuildingMeshes, buildingMeshes } from './buildingMeshes'
@@ -66,7 +69,6 @@ import {
 import { corridorOf, type TrafficStretch, trafficAlong } from './traffic'
 import { setMapView, setRouteAhead, useTruckersMp } from './truckersmp'
 import { type Area, type OtherPlayer, trackAt } from './truckersmpFeed'
-import { addSeaProtocol } from './seaTiles'
 
 /**
  * The one live map of the page. It's made once and moved between the screens that show it (the
@@ -82,9 +84,14 @@ import { addSeaProtocol } from './seaTiles'
 // MapLibre's worker as its own file: the copy inlined in its main bundle never starts once Vite has
 // pre-bundled it.
 maplibregl.setWorkerUrl(workerUrl)
+// The map's tiles of open sea are named by a scheme of WestPlay's own (`westplay-sea://`):
+// registered here, before any map is made, and through the same module MapLibre's own `addProtocol`
+// comes from. A call to a helper of another module was dropped by the bundler as having no effect
+// (its result unused), so the scheme stayed unregistered and every source of such a map failed:
+// no place icons, no road numbers (a player's report, 2026-11-15).
+seaTilesProtocol(maplibregl)
 
 /** The driving view's tilt, degrees. */
-const PITCH = 52
 /** The truck sits this far down the map (share of its height above it), leaving the road ahead in view. */
 const PUCK_FROM_TOP = 0.66
 /** How quickly the map turns after the truck (ms): slow enough to feel calm, quick enough to keep up. */
@@ -141,9 +148,16 @@ interface LiveMap {
   } | null
   /** Where the truck is along the route this frame (`null`: no route). */
   progress: Progress | null
+  /** The next traffic light's marker, and what it last showed (the host's `trafficLight`). */
+  trafficLight: { marker: maplibregl.Marker; element: HTMLDivElement; shown: string } | null
+  /** Where the light snapped to on the drawn route, for the light and route it was worked out for. */
+  trafficSnap: { key: string; route: Spans | null; point: Point } | null
   /** The canopies the truck is under, left out of the raised buildings (their ids, joined), and when they
    * were last looked for. */
   canopies: { hidden: string; at: number }
+  /** The performance mode the buildings layer was last shown or put away for (Settings › Display &
+   * Performance; `null`: not applied yet). */
+  buildingsMode: boolean | null
   /** Place names, most important first, with their size on screen. */
   labels: { marker: maplibregl.Marker; at: [number, number]; width: number; height: number }[]
   /** The appearance the page wants, and the one the map is painted in (they differ until it's restyled). */
@@ -183,6 +197,8 @@ interface LiveMap {
   /** Following north up, from above (the compass tapped), rather than behind the truck; the arrow brings the
    * chase view back. */
   northUp: boolean
+  /** Flat (the Maps app's 2D mode) rather than tilted behind the truck (3D): following it either way. */
+  flat: boolean
   /** The view the place names were last placed for (`null`: place them again). */
   labelsPlacedFor: string | null
   /** The view as last kept (mapView.ts), and when it was last looked at. */
@@ -192,6 +208,9 @@ interface LiveMap {
 
 /** Whether the map is browsing (moved away from the truck): the Maps app shows its recentre button. */
 export const useMapBrowsing = createStore<{ browsing: boolean }>()(() => ({ browsing: false }))
+
+/** Whether the map is flat (2D) rather than tilted behind the truck (3D): the Maps app's 2D/3D control. */
+export const useMapFlat = createStore<{ flat: boolean }>()(() => ({ flat: false }))
 
 /** Those following the map's bearing (the compass), told each time it turns. */
 const bearingListeners = new Set<(bearing: number) => void>()
@@ -240,7 +259,6 @@ function collectSamples() {
 function create(data: MapData, appearance: Appearance): LiveMap {
   const element = document.createElement('div')
   element.className = 'road-map'
-  addSeaProtocol(maplibregl)
   const map = new maplibregl.Map({
     container: element,
     style: mapStyle(appearance, data),
@@ -335,7 +353,10 @@ function create(data: MapData, appearance: Appearance): LiveMap {
     destination,
     routeShown: null,
     progress: null,
+    trafficLight: null,
+    trafficSnap: null,
     canopies: { hidden: '', at: -Infinity },
+    buildingsMode: null,
     labels,
     wanted: appearance,
     painted: appearance,
@@ -357,6 +378,7 @@ function create(data: MapData, appearance: Appearance): LiveMap {
     browsedFrom: 0,
     glide: null,
     northUp: false,
+    flat: useMapFlat.getState().flat,
     labelsPlacedFor: null,
     kept: '',
     keptAt: 0,
@@ -544,6 +566,22 @@ function syncAppearance(target: LiveMap) {
     target.painted = target.wanted
     // Names' colours follow the appearance.
     redrawPlaceIcons(target)
+  } catch {
+    // The style is still loading.
+  }
+}
+
+/**
+ * Shows the map's raised buildings, or puts the layer away in the performance mode (Settings › Display &
+ * Performance): it's the map's heaviest drawing — every building in view, redrawn each frame. Like the
+ * appearance and the garages, retried each frame until the style has loaded.
+ */
+function syncBuildings(target: LiveMap) {
+  const mode = useCabin.getState().performanceMode
+  if (target.buildingsMode === mode) return
+  try {
+    target.map.setLayoutProperty(BUILDING_LAYER, 'visibility', buildingsVisibility(mode))
+    target.buildingsMode = mode
   } catch {
     // The style is still loading.
   }
@@ -745,19 +783,21 @@ function place() {
     const display = displayClock()
     frame = requestAnimationFrame(function step(now) {
       frame = requestAnimationFrame(step)
-      // On every display frame, or evenly every few on a fast one (frameCap.ts): each frame drawn here redraws every
-      // 3D building in view (a player's log, 2026-10-27: the cab page's share up to 4x in towns), and the host hands
-      // the game a new one in each of its 60 a second only if they come evenly and more often than that.
+      // At most the screen's own refresh rate (frameCap.ts): the game is handed no more, and each
+      // here redraws every 3D building in view (a player's log, 2026-10-27: the cab page's share up
+      // in towns).
       const frameMs = display.tick(now)
       if (!mapFrameDue(now, lastFrame, frameMs)) return
       const dt = Math.min(now - lastFrame, 100)
       lastFrame = now
       syncAppearance(current)
+      syncBuildings(current)
       syncGarages(current)
       syncPlayers(current, now)
       syncRouteTraffic(current, now)
       syncRoute(current, now)
       syncCanopies(current, now)
+      syncTrafficLight(current)
       current.raised?.update(now)
       current.meshes?.update(now)
       updateCamera(current, now, dt)
@@ -887,13 +927,28 @@ export function northUpLiveMap() {
   useMapBrowsing.setState({ browsing: true })
 }
 
+/**
+ * Tilts the map flat (2D) or back behind the truck (3D): the Maps app's 2D/3D control, as Apple Maps has it at
+ * its top right. The truck is followed either way; north up stays flat. A map moved away is tilted where it is.
+ */
+export function flatLiveMap(flat: boolean) {
+  if (!live || live.flat === flat) return
+  live.flat = flat
+  useMapFlat.setState({ flat })
+  if (live.mode === 'browse') {
+    live.map.easeTo({ pitch: followPitch(live.northUp, flat), duration: GLIDE_MS })
+  } else {
+    glideToTruck(live)
+  }
+}
+
 /** Glides from where the map is to the following camera ([`updateCamera`]): behind the truck, or north up. */
 function glideToTruck(target: LiveMap) {
   const { map } = target
   // A zoom the player chose while browsing (the wheel, the buttons) stays: the camera follows at it.
   if (target.mode === 'browse' && Math.abs(map.getZoom() - target.browsedFrom) > 0.01) {
     const speed = truckAt(samples, performance.now() - FOLLOW_DELAY_MS)?.speed ?? 0
-    target.zoomOffset = zoomOffsetFor(map.getZoom(), speed)
+    target.zoomOffset = zoomOffsetFor(map.getZoom(), speed, useCabin.getState().zoomWithSpeed)
   }
   target.glide = {
     from: {
@@ -979,6 +1034,85 @@ const CANOPIES_EVERY_MS = 400
  * 2026-10-22: a filling station's or a border crossing's roof would cover the truck). From the tiles loaded;
  * the layer's filter changed only when they change.
  */
+/**
+ * The next light's mark on the map: a lit dot and its countdown, while the host reads one from the game. No
+ * light near, or the setting off: no mark (owner 2026-11-01).
+ */
+function syncTrafficLight(target: LiveMap) {
+  const { routeNext, trafficLight: light } = useLive.getState()
+  const wanted = useCabin.getState().trafficLights ? light : null
+  if (!wanted) {
+    target.trafficLight?.marker.remove()
+    target.trafficLight = null
+    target.trafficSnap = null
+    return
+  }
+  // On the line the map draws, not at the light's pole beside it: the drawn spans follow the road's curves
+  // and the junction ways, where the straight node-to-node line can cut a corner.
+  const key = `${wanted.x.toFixed(1)}:${wanted.z.toFixed(1)}`
+  const spans = target.routeShown?.spans ?? null
+  if (!target.trafficSnap || target.trafficSnap.key !== key || target.trafficSnap.route !== spans) {
+    const span = target.progress?.span ?? routeNext
+    const onSpans = spans ? routePointOnSpans(spans, wanted.x, wanted.z, span) : null
+    target.trafficSnap = { key, route: spans, point: onSpans ?? [wanted.x, wanted.z] }
+  }
+  const [x, z] = target.trafficSnap.point
+  if (!target.trafficLight) {
+    const element = document.createElement('div')
+    element.className = 'map-traffic-light'
+    // A light at the junction, its colour lit and the countdown beside it, as a map app draws it.
+    const marker = new maplibregl.Marker({ element, anchor: 'bottom', offset: [0, -4] })
+      .setLngLat(toLngLat(x, z))
+      .addTo(target.map)
+    target.trafficLight = { marker, element, shown: '' }
+  }
+  const mark = target.trafficLight
+  mark.marker.setLngLat(toLngLat(x, z))
+  const seconds = Math.max(0, Math.ceil(wanted.seconds))
+  const shown = `${wanted.state}:${seconds}`
+  if (shown === mark.shown) return
+  mark.shown = shown
+  mark.element.className = `map-traffic-light ${wanted.state}`
+  mark.element.innerHTML =
+    `<span class="mtl-badge">${seconds}</span>` +
+    `<span class="mtl-housing">` +
+    `<i class="mtl-lamp red"></i><i class="mtl-lamp amber"></i><i class="mtl-lamp green"></i>` +
+    `</span>`
+  mark.element.title = `${wanted.state} ${seconds}s`
+}
+
+/**
+ * The drawn route's point nearest a light (`null`: none within 25 m): the line's own spans, curves and
+ * junction ways included, so the marker sits on the blue line through the junction. Only the spans just
+ * ahead of the truck are looked at: a later part of a long route can pass the same place, and that isn't
+ * this light's junction.
+ */
+function routePointOnSpans(spans: readonly Point[][], x: number, z: number, next: number): Point | null {
+  let best: Point | null = null
+  let bestDistance = 25
+  const from = Math.max(0, next - 1)
+  const to = Math.min(spans.length, next + 4)
+  for (let spanIndex = from; spanIndex < to; spanIndex++) {
+    const span = spans[spanIndex]
+    for (let index = 0; index + 1 < span.length; index++) {
+      const [ax, az] = span[index]
+      const [bx, bz] = span[index + 1]
+      const dx = bx - ax
+      const dz = bz - az
+      const length = dx * dx + dz * dz
+      const along = length === 0 ? 0 : Math.max(0, Math.min(1, ((x - ax) * dx + (z - az) * dz) / length))
+      const px = ax + dx * along
+      const pz = az + dz * along
+      const distance = Math.hypot(px - x, pz - z)
+      if (distance < bestDistance) {
+        bestDistance = distance
+        best = [px, pz]
+      }
+    }
+  }
+  return best
+}
+
 function syncCanopies(target: LiveMap, now: number) {
   const { canopies, map } = target
   if (now - canopies.at < CANOPIES_EVERY_MS || !map.getLayer(BUILDING_LAYER)) return
@@ -1106,13 +1240,19 @@ function updateCamera(target: LiveMap, now: number, dt: number) {
     return
   }
 
-  const zoom = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, zoomForSpeed(truck.speed) + target.zoomOffset))
+  // Close in town and further out on the motorway, so the road ahead keeps the same time — or one view for every
+  // speed, where the player turned that off (Settings › Maps): either way, the player's own zoom on top of it.
+  const zoom = Math.min(
+    MAX_ZOOM,
+    Math.max(MIN_ZOOM, followZoom(truck.speed, target.zoomOffset, useCabin.getState().zoomWithSpeed)),
+  )
   const height = map.getContainer().clientHeight
   // Behind the truck: facing its way, tilted, the truck low on the screen. North up: from above, the truck in
   // the middle.
+  const pitch = followPitch(target.northUp, target.flat)
   const wanted = target.northUp
-    ? { bearing: 0, pitch: 0, top: 0 }
-    : { bearing, pitch: PITCH, top: height * (PUCK_FROM_TOP - 0.5) * 2 }
+    ? { bearing: 0, pitch, top: 0 }
+    : { bearing, pitch, top: height * (PUCK_FROM_TOP - 0.5) * 2 }
   const padding = { top: wanted.top, bottom: 0, left: 0, right: 0 }
 
   if (target.mode === 'return' && target.glide) {

@@ -43,6 +43,39 @@ export interface Telemetry {
   leftBlinker: boolean
   rightBlinker: boolean
   paused: boolean
+
+  adblue?: number
+  /** The engine and its consumables, for the Vehicle app's overview: the brake air tank's pressure (psi,
+   * `truck.brake.air.pressure`), the AdBlue left (litres, `truck.adblue`), the coolant's temperature (degrees
+   * Celsius, `truck.water.temperature`) and the odometer (kilometres, `truck.odometer`). `engineKnown` says
+   * which the game answered ([`ENGINE`]); an older host sends none, and then they read 0 for lack of an answer. */
+  brakeAirPressure?: number
+  cargoDamage?: number
+  engineKnown?: number
+  odometer?: number
+  restStopKnown?: boolean
+  /** In-game minutes until the game says the driver has to rest (its `rest.stop` channel), and whether the game
+   * has said it: it says nothing while the game's fatigue simulation is off (§69). */
+  restStopMinutes?: number
+  /** The wheels' effective steering, -1 (right) to 1 (left), counterclockwise: the SDK's
+   * `truck.effective.steering` (the reversing camera's guide lines swing by it). */
+  steering: number
+  /** Whether a trailer is hitched (the SDK's `trailer.connected`), how worn its chassis and wheels are and how
+   * damaged its cargo is (0..1, as the rest; `wearKnown` again). */
+  trailerConnected?: boolean
+  trailerWearChassis?: number
+  trailerWearWheels?: number
+  waterTemperature?: number
+  wearCab?: number
+  wearChassis?: number
+  /** How worn the truck's parts are, each 0 (as new) to 1: the SDK's `truck.wear.*` channels, the damage the
+   * game shows in its own service and job screens. Which the game answered is `wearKnown` ([`WEAR`]); one it
+   * doesn't have stays 0. An older host sends none: take them as unknown, not as no damage. */
+  wearEngine?: number
+  /** Bits naming the wear and damage channels the game answered: [`WEAR`]. */
+  wearKnown?: number
+  wearTransmission?: number
+  wearWheels?: number
 }
 
 /** The time the cab's clock shows (minutes since day 0, 00:00): the game's, or in a Convoy session the
@@ -63,6 +96,11 @@ export interface TruckInfo {
   id: string
   /** Display model name, localized by the game, e.g. "XG+". */
   name: string
+
+  adblueCapacity?: number
+  /** The truck's tanks in litres (`fuel.capacity`, `adblue.capacity`), given with the truck: absent, or 0, when
+   * the game hasn't said — and then the Vehicle app shows how much is left without its share of the tank. */
+  fuelCapacity?: number
 }
 
 /** The player's job (`westplay_shared::JobInfo`): names localized by the game. */
@@ -89,10 +127,17 @@ export interface JobInfo {
 /** What a keybind does: the music's volume a step up or down, or it paused or played on; or, a volume key held
  * (two seconds: owner 2026-11-03), the next song or the one before (or the song's start, past its first seconds). */
 export type KeybindAction =
-  'volumeUp' | 'volumeDown' | 'playPause' | 'nextTrack' | 'previousTrack' | 'brightnessDown' | 'brightnessUp'
+  | 'volumeUp'
+  | 'volumeDown'
+  | 'playPause'
+  | 'nextTrack'
+  | 'previousTrack'
+  | 'brightnessDown'
+  | 'brightnessUp'
 
 export type HostMessage =
   | { type: 'telemetry'; data: Telemetry }
+  | { type: 'guidance'; line: string }
   | { type: 'truck'; data: TruckInfo }
   | { type: 'job'; data: JobInfo }
   /** `null` until the game has drawn a WestPlay screen. Checked against the known ids on arrival. */
@@ -100,6 +145,7 @@ export type HostMessage =
   /** The settings the page applies: whether the truck's own strip stays beside WestPlay
    * (`westplay_host::settings::TruckStrip`), the wallpaper (`null`: none chosen yet) and the player's icon set
    * (`null`: WestPlay's own). Sent as the page loads and whenever they change. */
+  | { type: 'trailer'; data: TrailerInfo }
   | {
       type: 'settings'
       truckStrip: string
@@ -116,6 +162,15 @@ export type HostMessage =
       equalizerCustom?: boolean
       /** The language chosen in the companion (a game code, `de_de`); `null`: the game's. */
       language?: string | null
+      /** How often WestPlay hands the game a new frame, chosen in Settings › Display & Performance (`'60'` or
+       * `'30'`: `westplay_host::settings::RefreshRate`). Older hosts send none, meaning 60. */
+      refreshRate?: string
+      /** Whether the screen gives up some of its effects to run lighter, chosen in Settings › Display &
+       * Performance (`westplay_host::settings::ScreenSettings::performance_mode`). An older host sends none,
+       * meaning off. */
+      performanceMode?: boolean
+      /** The truck's own speakers, placed in its cab (Settings › Sound), or not: its sound plays as it is. */
+      spatial?: boolean
     }
   /** The player's own wallpapers and icon sets (shared/customize.ts), their files at `CABIN_FILES`. */
   | { type: 'customize'; wallpapers: CustomWallpaper[]; iconSets: IconSet[] }
@@ -216,6 +271,12 @@ export type HostMessage =
   /** Spotify's web player: whether it's signed in and playing (`null`: not running), and whether its sign-in
    * window is open on the PC's desktop. Nothing else of the account. */
   | { type: 'spotify'; signedIn: boolean | null; playing: boolean | null; signingIn: boolean }
+  /** QQ Music's own player: signed in, playing, the player's avatar. */
+  | { type: 'qqMusic'; signedIn: boolean | null; playing: boolean | null; avatar: string | null }
+  /** An answer to one of the app's questions (`ask`'s id). */
+  | ({ type: 'qqMusicAnswer'; id: number; failed?: boolean } & Partial<QqMusicAnswers>)
+  /** What QQ Music plays. */
+  | { type: 'qqMusicPlayback'; playback: QqMusicPlayback | null }
   /** Spotify's answer to the Spotify app's question `id` (`failed`: Spotify didn't answer). */
   | ({ type: 'spotifyAnswer'; id: number; failed?: boolean } & Partial<SpotifyAnswers>)
   /** What Spotify plays (on WestPlay, or elsewhere on the account through Spotify Connect); `null`: nothing. */
@@ -267,6 +328,21 @@ export type HostMessage =
   | { type: 'safariNoDownload'; tab: number }
   /** Whether any of Safari's pages plays sound. */
   | { type: 'safariPlaying'; playing: boolean }
+  /** The web app's page's own field: whether one has the focus, the text it holds, and which selection it is (a
+   * number that changes each time one takes the focus). */
+  | { type: 'webAppTyping'; on: boolean; text: string; selection: number }
+  /** The web app's page: the site it shows and the page's own title (`null`: none running). */
+  | { type: 'webApp'; state: WebAppState | null }
+  /** What the web app's page plays, for the dashboard's Now Playing (`null`: nothing). */
+  | { type: 'webAppMedia'; media: WebAppMedia | null }
+  /** The words the web app's page has for what it plays, whole (`null`: none): the lyrics view's. */
+  | { type: 'webAppLyrics'; lyrics: Lyrics | null }
+  /** Where in the song the web app's page is (seconds): the lyrics view follows it. */
+  | { type: 'webAppLyricAt'; at: number }
+  /** The web app's page's own sound volume (0 to 1), for the lyrics view's slider. */
+  | { type: 'webAppVolume'; volume: number }
+  | { type: 'fatigue'; on: boolean }
+  | { type: 'trafficLight'; light: TrafficLight | null }
 
 /** The game's weather: the one there is and the one it's turning to (the same once it has); in game minutes,
  * how long until the game changes it next; and how wet the roads are, percent. Each of the last two `null`
@@ -311,7 +387,7 @@ export type PageMessage =
   | { type: 'ready' }
   /** A startup stage reached (the boot screens shown), for the host's startup log. */
   | { type: 'startup'; stage: string }
-  /** The cab's guidance (the next turn it shows and how far), every 30 s while there's a route, for the host's log
+  /** The cab's guidance (the next turn it shows and how far), every 30 s while there's a route
    * (cabin/maps/guidanceLog.ts). */
   | { type: 'guidance'; line: string }
   /** Whether WestPlay is open on the truck's screen (or the truck's original screen shows): posted as the
@@ -359,12 +435,21 @@ export type PageMessage =
   | { type: 'youtubeMusic'; command: YouTubeMusicCommand }
   /** A command for Player's own player (`westplay_host::music_folder::Command`). */
   | { type: 'player'; command: PlayerCommand }
+  /** A command for QQ Music's own player. */
+  | { type: 'qqMusic'; command: QqMusicCommand }
   /** What the Safari app asks of its pages (`westplay_host::safari::Command`). */
   | { type: 'safari'; command: SafariCommand }
+  | { type: 'refreshRate'; rate: '60' | '30' }
+  | { type: 'trafficLights'; on: boolean }
+  | { type: 'performanceMode'; on: boolean }
+  | { type: 'spatial'; on: boolean }
 
 /** A Safari tab's page (`westplay_host::safari::TabState`): its address and title, whether it loads, whether it
  * can go back or forward, its icon's address, its colour at the top (a CSS colour), whether it's full screen,
  * the field pressed in it (a password's value as dots) and why it failed to load. */
+| { type: 'ime'; on: boolean }
+| { type: 'log'; text: string }
+| { type: 'webApp'; command: WebAppCommand }
 export interface SafariTabState {
   url: string
   title: string
@@ -649,7 +734,15 @@ export type AppleMusicCommand =
   | { action: 'ask'; id: number; question: AppleMusicQuestion }
   /** An album, playlist, station, artist or song (`id`), or a list of songs (`songs`), from `index`; with
    * neither, play on. */
-  | { action: 'play'; id?: string; songs?: string[]; index?: number; shuffle?: boolean }
+  | {
+      action: 'play'
+      id?: string
+      songs?: string[]
+      index?: number
+      shuffle?: boolean
+      /** What `id` names: a playlist's number, or an album's or a singer's mid. */
+      kind?: string
+    }
   | { action: 'pause' }
   | { action: 'next' }
   | { action: 'previous' }
@@ -671,7 +764,7 @@ export type AppleMusicShelf = 'recent' | 'playlists' | 'artists' | 'albums' | 's
 export interface AppleMusicItem {
   id: string
   /** A folder: of the Library's playlists. */
-  kind: 'album' | 'playlist' | 'artist' | 'station' | 'song' | 'curator' | 'folder'
+  kind: 'album' | 'playlist' | 'artist' | 'station' | 'song' | 'curator' | 'folder' | 'top'
   name: string
   by: string
   note: string
@@ -724,6 +817,8 @@ export interface AppleMusicCollection {
   genre: string
   year: number | null
   tracks: AppleMusicTrack[]
+  /** Favoured playlists shown on the account's "Mine" page (QQ Music's own). */
+  playlists: AppleMusicItem[]
 }
 
 export interface AppleMusicArtist {
@@ -805,6 +900,9 @@ export interface AppleMusicPlayback {
   repeat: AppleMusicRepeat
   /** The page's player's volume, 0 to 1. */
   volume: number | null
+  /** The player's own choice of it: a fade may lower `volume`, this one only the player sets (the
+   * host keeps it for the next start). */
+  chosen?: number
   next: AppleMusicTrack[]
 }
 
@@ -1171,7 +1269,14 @@ declare global {
 
 /** The cabin page as a live demo in the companion's onboarding (`cabin.html?demo`): never the host's page,
  * even inside a WebView2 (the companion's own). See cabin/demo.ts. */
-export const IS_DEMO = typeof location !== 'undefined' && new URLSearchParams(location.search).has('demo')
+export const IS_DEMO =
+  typeof document !== 'undefined' &&
+  // ① A plain browser: the query says so. ② The companion's screen: its page is `cabin-demo.html`,
+  // which carries the mark in its own head (vite.config.ts, demoPage) — the query can't reach a page
+  // served from a folder (WebView2's virtual host), and the frame is another profile, so neither the
+  // URL nor window.name nor localStorage can carry it.
+  (new URLSearchParams(location.search).has('demo') ||
+    document.querySelector('meta[name="westplay-demo"]') !== null)
 
 /** Whether the page runs inside the WestPlay host (and not in a plain browser preview, nor as the demo). */
 export function isInHost(): boolean {
@@ -1202,3 +1307,178 @@ export function postToHost(message: PageMessage): void {
 export function hasTruck(truck: TruckInfo | null): truck is TruckInfo {
   return truck !== null && truck.brandId !== ''
 }
+
+/** The next traffic light ahead, as the game's own semaphore says it (crates/host traffic_lights.rs). */
+export interface TrafficLight {
+  state: 'red' | 'amber' | 'green' | 'sleep'
+  /** How long this state lasts, seconds. */
+  seconds: number
+  /** How far ahead it is, metres. */
+  distance: number
+  /** Its place on the game's ground (x east, z south), metres. */
+  x: number
+  z: number
+}
+
+/** The trailer hitched (`westplay_shared::TrailerInfo`): its fields are empty when there is none. */
+export interface TrailerInfo {
+  /** Its model id, e.g. `trailer.scs.box`. */
+  id: string
+  brandId: string
+  /** Display brand and model, localized by the game (a trailer it has no name for: empty). */
+  brand: string
+  name: string
+  /** Its plate as the game shows it. */
+  plate: string
+  /** The SDK's own ids: `single`, `double`, `b-double`… and `dryvan`, `refrigerated`, `flatbed`… */
+  chainType: string
+  bodyType: string
+}
+
+/** What a keybind does: the music's volume a step up or down, or it paused or played on; or, a volume key held
+ * (two seconds: owner 2026-11-03), the next song or the one before (or the song's start, past its first seconds). */
+
+/** A streaming site the web app shows (`westplay_host::webapp::Site`). */
+export type WebAppSite = 'bilibili' | 'qqMusic' | 'netease' | 'qingting' | 'douyin' | 'kugou'
+
+/** What the WebApp app asks of its site's page (`westplay_host::webapp::Command`): the site to open, where the
+ * page shows (the frame's pixels, under the page), and what it does. */
+
+/** How the web app's page is: the site it shows, the page's own `<title>` (empty until it has one), whether it
+ * can go back in its history, and whether a video of its is in full screen (the app covers the CarPlay area then,
+ * WebAppScreen.tsx). */
+export interface WebAppState {
+  site: WebAppSite
+  title: string
+  canGoBack: boolean
+  fullScreen: boolean
+  /** Whether the page is on show in the app: it has said how wide it lays out, and the app has it in view.
+   * The cabin page cuts itself open for the site only then (before that its own background covers the room,
+   * so the game's own navigation doesn't show through while the site loads). */
+  shown: boolean
+}
+
+/** What the web app's page plays, as the site tells the system (its Media Session) and the page's own lyrics
+ * say (`westplay_host::webapp::Media`). */
+
+/** What the web app's page plays, as the site tells the system (its Media Session) and the page's own lyrics
+ * say (`westplay_host::webapp::Media`). */
+export interface WebAppMedia {
+  title: string
+  artist: string
+  /** The cover's URL (`null`: none). */
+  artwork: string | null
+  playing: boolean
+  /** The line of the song's words it's at (`null`: the page has none). */
+  lyric: string | null
+}
+
+/** A song of the game's music folder (`westplay_host::music_folder::Song`): its file's name, and what its tags
+ * say (none on a file without them): title, artist, length (seconds; 0: not known), cover (a file at
+ * `https://westplay.music-covers/`). */
+
+/** What the WebApp app asks of its site's page (`westplay_host::webapp::Command`): the site to open, where the
+ * page shows (the frame's pixels, under the page), and what it does. */
+export type WebAppCommand =
+  | { action: 'open'; site: WebAppSite }
+  | { action: 'show'; x: number; y: number; width: number; height: number }
+  | { action: 'hide' }
+  | { action: 'reload' }
+  | { action: 'home' }
+  | { action: 'back' }
+  | { action: 'playPause' }
+  | { action: 'next' }
+  | { action: 'previous' }
+  /** The cabin's volume slider, onto the page's own sound (0: silent). */
+  | { action: 'setVolume'; volume: number }
+  /** The cab's own quiet over the page's sound while the truck reverses: held while a level, `null` letting the
+   * page's own volume back (the one volume a page that keeps its own volume takes). */
+  | { action: 'duckVolume'; volume: number | null }
+  /** The cabin's keyboard typing into the page's field: its text, whole. */
+  | { action: 'setText'; text: string }
+  /** The cabin's own input method's pick, into the page's field at the page's own caret, through the browser
+   * itself (`Input.insertText`): the way into a field the page keeps to itself (Bilibili's own components). */
+  | { action: 'insertText'; text: string }
+  /** Its return key (a search's Enter). */
+  | { action: 'enter' }
+  | { action: 'close' }
+
+/** How the web app's page is: the site it shows, the page's own `<title>` (empty until it has one), whether it
+ * can go back in its history, and whether a video of its is in full screen (the app covers the CarPlay area then,
+ * WebAppScreen.tsx). */
+
+/** The bits of `Telemetry.engineKnown`: which engine, consumable and distance channels the game answered. */
+export const ENGINE = {
+  air: 1 << 0,
+  adblue: 1 << 1,
+  water: 1 << 2,
+  odometer: 1 << 3,
+} as const
+
+/** The bits of `Telemetry.wearKnown`: which wear and damage channels the game answered (the host's `WEAR_*`). */
+
+/** The bits of `Telemetry.wearKnown`: which wear and damage channels the game answered (the host's `WEAR_*`). */
+export const WEAR = {
+  engine: 1 << 0,
+  transmission: 1 << 1,
+  cab: 1 << 2,
+  chassis: 1 << 3,
+  wheels: 1 << 4,
+  trailerChassis: 1 << 5,
+  trailerWheels: 1 << 6,
+  cargo: 1 << 7,
+} as const
+
+/** The time the cab's clock shows (minutes since day 0, 00:00): the game's, or in a Convoy session the
+ * session's, shifted by `shift` minutes, the time zone where the truck is with the profile's time zones on
+ * (the cab's `clockShift`, cabin/state/timeZone.ts: an hour on in Finland, an hour back in the UK).
+ * Everything shown as a time goes by it; whether a job is late, by `gameTime`. */
+
+/** Writes a line into the host's log (`app.log`), from the cabin page: nothing happens in a plain browser, or
+ * where there's no window at all (a test). */
+export function logToHost(text: string): void {
+  if (typeof window === 'undefined') return
+  postToHost({ type: 'log', text })
+}
+
+export type QqMusicRepeat = AppleMusicRepeat
+
+export type QqMusicQuestion =
+  | { ask: 'home' }
+  /** The official charts (官方歌单): the layer's groups of lists. */
+  | { ask: 'top' }
+  | { ask: 'search'; query: string }
+  | { ask: 'collection'; id: string; kind?: AppleMusicItem['kind']; name?: string; by?: string; image?: string | null }
+  | { ask: 'lyrics'; id: string }
+
+export interface QqMusicAnswers {
+  home: AppleMusicPage
+  top: AppleMusicPage
+  search: AppleMusicResults
+  collection: AppleMusicCollection
+  lyrics: Lyrics
+}
+
+export type QqMusicPlayback = AppleMusicPlayback
+
+export type QqMusicCommand =
+  | { action: 'start' }
+  | { action: 'ask'; id: number; question: QqMusicQuestion }
+  | { action: 'play'; id?: string; songs?: string[]; index?: number; shuffle?: boolean }
+  | { action: 'pause' }
+  | { action: 'next' }
+  | { action: 'previous' }
+  | { action: 'seek'; seconds: number }
+  | {
+      action: 'volume'
+      percent: number
+      /** A fade's (the cab's own quiet): not the player's choice, so the host doesn't keep it. */
+      transient?: boolean
+    }
+  | { action: 'shuffle'; on: boolean }
+  | { action: 'repeat'; mode: QqMusicRepeat }
+  | { action: 'jump'; offset: number }
+  | { action: 'favorite'; id: string; on: boolean }
+  | { action: 'add'; id: string }
+  /** Open the site's own sign-in window on the desktop. */
+  | { action: 'signIn' }

@@ -402,7 +402,11 @@ const APART_VEHICLES: &[u64] = &[0xb162_96d6_78c2_d0a8, 0x1cb7_e722_157f_00ff, 0
 /// them. The Scania Touring and the MAN Lion's Coach have WestPlay on their own screens. Not the Volvo 9700: its own
 /// screen stays the game's (no CarPlay in the real one, owner 2026-11-12), and the tablet fitted in its dashboard set
 /// shows WestPlay (owner 2026-11-13: "It has the tablet on dashboard items slot ALREADY").
-const BUSES: &[&str] = &["scania.touring_23", "man.lions_24"];
+// Empty: the Coaches DLC's two (Scania Touring, MAN Lion's Coach 2024) are WestPlay's like any other
+// vehicle now (owner 2026-11-14: they have no tablet accessory at all, and WestPlay draws on their own
+// centre screens — the exclusion here hid it). Kept as a const a mod's own vehicles could still be set
+// apart by.
+const BUSES: &[&str] = &[];
 
 /// Whether the vehicle `truck` (its id) is one of [`APART_VEHICLES`] (or any of its parts is).
 fn vehicle_apart(truck: &str) -> bool {

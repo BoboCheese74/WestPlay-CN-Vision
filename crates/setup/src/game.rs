@@ -279,6 +279,15 @@ fn running_processes(names: &[&str]) -> bool {
     // SAFETY: the snapshot is open; `entry` is a local with its size set, as the call requires.
     let mut more = unsafe { Process32FirstW(snapshot, &mut entry) }.is_ok();
     while more {
+        // A process with no threads left is one that has exited but whose entry the kernel still lists (a crash,
+        // or a handle something else still holds): not the game running, and counting it stopped WestPlay from
+        // making its mod again while no game was open at all (owner 2026-11-06: a killed `amtrucks` sat in the
+        // list with no threads, and the mod was never rebuilt).
+        if entry.cntThreads == 0 {
+            // SAFETY: as above: the open snapshot, and `entry` with its size set.
+            more = unsafe { Process32NextW(snapshot, &mut entry) }.is_ok();
+            continue;
+        }
         let length = entry.szExeFile.iter().position(|&c| c == 0).unwrap_or(entry.szExeFile.len());
         let name = String::from_utf16_lossy(&entry.szExeFile[..length]);
         if names.iter().any(|wanted| name.eq_ignore_ascii_case(wanted)) {

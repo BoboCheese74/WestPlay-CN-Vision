@@ -74,6 +74,9 @@ export const words: CompanionWords = {
     coachPassengersDetail: 'Kõik istmete kohal',
     coachNote: 'Selle bussi reisijate kõlarid: {n}, kõik korraga. Nõrga protsessoriga võib mäng nendega hakkida.',
     coachNoteAny: 'Bussis mängivad reisijate kõlarid kõik korraga. Nõrga protsessoriga võib mäng nendega hakkida.',
+    display: 'Truck Screen',
+    displayFirst: 'WestPlay tablet',
+    displayFirstDetail: 'WestPlay fills the tablet first, even in a truck whose own screen shows it.',
     elevated: {
       title: 'Mäng töötab administraatorina',
       text: 'Seepärast ei saa WestPlay mängust lugeda teekonda, juhiseid ega ilma. Käivita mäng tavaliselt, mitte administraatorina.',

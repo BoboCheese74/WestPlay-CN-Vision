@@ -72,28 +72,24 @@ describe('navigate', () => {
 
 describe('sidebarApps', () => {
   it('shows one app of each kind, the last used of it, in a fixed order', () => {
-    // Maps, the last used music app, then Phone or Messages (YouTube, Weather and Settings never take a slot).
-    expect(sidebarApps(['weather', 'spotify', 'youtube', 'music', 'maps'], 3)).toEqual(['maps', 'spotify', 'phone'])
-    expect(sidebarApps(['youtubeMusic', 'messages', 'spotify', 'phone'], 3)).toEqual([
-      'maps',
-      'youtubeMusic',
-      'messages',
-    ])
+    // Maps, the last used music app, then the last used of Calendar and Weather (YouTube and Settings never
+    // take a slot; Phone and Messages are not in this release, so their slot is passed over).
+    expect(sidebarApps(['weather', 'spotify', 'youtube', 'music', 'maps'], 3)).toEqual(['maps', 'spotify', 'weather'])
+    expect(sidebarApps(['youtubeMusic', 'weather', 'spotify'], 3)).toEqual(['maps', 'youtubeMusic', 'weather'])
   })
 
   it("takes each kind's first app until one of it is used", () => {
-    expect(sidebarApps([], 3)).toEqual(['maps', 'music', 'phone'])
-    expect(sidebarApps(['settings'], 3)).toEqual(['maps', 'music', 'phone'])
+    expect(sidebarApps([], 3)).toEqual(['maps', 'music', 'calendar'])
+    expect(sidebarApps(['settings'], 3)).toEqual(['maps', 'music', 'calendar'])
   })
 
-  it('shows only as many as the screen has room for, the Calendar fourth where there is', () => {
+  it('shows only as many as the screen has room for, the calendar fourth where there is', () => {
     expect(sidebarApps(['spotify'], 1)).toEqual(['maps'])
-    expect(sidebarApps(['spotify'], 4)).toEqual(['maps', 'spotify', 'phone', 'calendar'])
-    // The fourth: Calendar, Weather, Settings or Safari, the last used of them (owner 2026-11-08).
-    expect(sidebarApps(['safari', 'weather', 'spotify'], 4)).toEqual(['maps', 'spotify', 'phone', 'safari'])
-    expect(sidebarApps(['settings', 'calendar'], 4)).toEqual(['maps', 'music', 'phone', 'settings'])
-    expect(sidebarApps(['youtube', 'weather'], 4)).toEqual(['maps', 'music', 'phone', 'weather'])
-    expect(sidebarApps(['spotify'], 9)).toHaveLength(4)
+    // The truck's own app comes after the calendar's slot (a screen with room for six shows Settings too).
+    expect(sidebarApps(['spotify'], 4)).toEqual(['maps', 'spotify', 'calendar', 'vehicle'])
+    expect(sidebarApps(['weather', 'spotify'], 4)).toEqual(['maps', 'spotify', 'weather', 'vehicle'])
+    expect(sidebarApps(['settings', 'calendar'], 4)).toEqual(['maps', 'music', 'calendar', 'vehicle'])
+    expect(sidebarApps(['spotify'], 6)).toEqual(['maps', 'spotify', 'calendar', 'vehicle', 'settings'])
   })
 
   it('remembers a music app however many others were opened since', () => {
@@ -101,7 +97,7 @@ describe('sidebarApps', () => {
     for (const app of ['maps', 'weather', 'settings', 'youtube', 'maps'] as const) {
       state = navigate(state, { type: 'openApp', app })
     }
-    expect(sidebarApps(state.recents, 3)).toEqual(['maps', 'youtubeMusic', 'phone'])
+    expect(sidebarApps(state.recents, 3)).toEqual(['maps', 'youtubeMusic', 'weather'])
   })
 })
 

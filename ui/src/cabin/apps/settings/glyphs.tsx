@@ -34,6 +34,17 @@ export function WallpaperGlyph() {
   )
 }
 
+/** Display & Performance: a dial with its needle, for the screen's rate and what it gives up to run at it. */
+export function DisplayGlyph() {
+  return (
+    <TileGlyph>
+      <path d="M4.5 17.2a8.3 8.3 0 1 1 15 0" fill="none" stroke="#fff" strokeWidth="2.4" strokeLinecap="round" />
+      <path d="M12 17.2 16.3 12" fill="none" stroke="#fff" strokeWidth="2.4" strokeLinecap="round" />
+      <circle cx="12" cy="17.2" r="1.9" />
+    </TileGlyph>
+  )
+}
+
 /** Dashboard: its widgets, a tall one beside two small ones. */
 export function DashboardGlyph() {
   return (
@@ -66,6 +77,23 @@ export function SoundGlyph() {
         strokeWidth="1.8"
         strokeLinecap="round"
       />
+    </TileGlyph>
+  )
+}
+
+/** Maps: a folded map, its folds drawn, and the truck's own pin on it. */
+export function MapGlyph() {
+  return (
+    <TileGlyph>
+      <path
+        d="M3.4 6.7 8.7 4.4l6.6 2.3 5.3-2.3v12.9l-5.3 2.3-6.6-2.3-5.3 2.3Z"
+        fill="none"
+        stroke="#fff"
+        strokeWidth="1.9"
+        strokeLinejoin="round"
+      />
+      <path d="M8.7 4.4v12.9M15.3 6.7v12.9" fill="none" stroke="#fff" strokeWidth="1.5" strokeOpacity="0.7" />
+      <circle cx="12" cy="11.6" r="2.2" />
     </TileGlyph>
   )
 }

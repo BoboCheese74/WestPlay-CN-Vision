@@ -1,6 +1,14 @@
 import { useEffect, useRef, useState } from 'react'
 import { useText } from '../state/text'
-import { followBearing, northUpLiveMap, recentreLiveMap, useMapBrowsing, zoomLiveMap } from './liveMap'
+import {
+  flatLiveMap,
+  followBearing,
+  northUpLiveMap,
+  recentreLiveMap,
+  useMapBrowsing,
+  useMapFlat,
+  zoomLiveMap,
+} from './liveMap'
 
 /**
  * The Maps app's buttons over the map, like CarPlay's: zoom in and out; the compass right over the zoom pair,
@@ -27,6 +35,26 @@ export function MapControls() {
       </button>
       <MapCompass label={text.northUp} />
       <MapZoom />
+    </div>
+  )
+}
+
+/**
+ * The map flat or tilted (2D/3D), the Maps app's control at its top right, as Apple Maps has it: 3D is the
+ * chase view behind the truck (tilted), 2D the same view from above, still turned to the truck's way. The map is
+ * followed either way; the compass still turns it north up.
+ */
+export function MapMode() {
+  const text = useText()
+  const flat = useMapFlat((state) => state.flat)
+  return (
+    <div className="map-mode glass" role="group" aria-label={text.map3d}>
+      <button type="button" aria-pressed={flat} aria-label={text.map2d} onClick={() => flatLiveMap(true)}>
+        2D
+      </button>
+      <button type="button" aria-pressed={!flat} aria-label={text.map3d} onClick={() => flatLiveMap(false)}>
+        3D
+      </button>
     </div>
   )
 }

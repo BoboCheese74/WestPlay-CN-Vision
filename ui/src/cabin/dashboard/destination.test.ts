@@ -38,7 +38,7 @@ describe('destinationView', () => {
       kicker: 'Delivery',
       title: 'Wielton',
       subtitle: 'Kraków',
-      detail: 'Arrive by 18:40 · 214 km',
+      detail: '4 h left · 214 km',
       late: false,
     })
   })
@@ -47,7 +47,7 @@ describe('destinationView', () => {
     // The player's own 14:00 is the session's 01:11 the next day (11 h 11 min on).
     const convoy = { ...telemetry, multiplayerTimeOffset: 11 * 60 + 11 }
     expect(cabClock(convoy, 0)).toBe(now + 671)
-    expect(destinationView(job, null, convoy, [], text, 0)?.detail).toBe('Arrive by 05:51 · 214 km')
+    expect(destinationView(job, null, convoy, [], text, 0)?.detail).toBe('4 h left · 214 km')
     const late = destinationView({ ...job, deliveryTime: now - 10 }, null, convoy, [], text, 0)
     expect(late?.late).toBe(true)
     // A route's arrival, 3 h on by the cab clock.
@@ -59,16 +59,16 @@ describe('destinationView', () => {
   it('shows times in the time zone where the truck is, and is late by the player’s own time', () => {
     // An hour on (Finland, with the game's time zones on).
     expect(cabClock(telemetry, 60)).toBe(now + 60)
-    expect(destinationView(job, null, telemetry, [], text, 60)?.detail).toBe('Arrive by 19:40 · 214 km')
+    expect(destinationView(job, null, telemetry, [], text, 60)?.detail).toBe('4 h left · 214 km')
     expect(destinationView({ ...job, deliveryTime: now - 10 }, null, telemetry, [], text, 60)?.late).toBe(true)
     expect(destinationView(null, [0, 0], telemetry, [label('Bari', 0)], text, 60)?.detail).toBe(
       '18:00 arrival · 3:00 hrs',
     )
   })
 
-  it('names the day when the deadline is another day, and says when it has passed', () => {
+  it('says how long is left until the deadline, and when it has passed', () => {
     expect(destinationView({ ...job, deliveryTime: now + 1440 }, null, telemetry, [], text, 0)?.detail).toBe(
-      'Arrive by Fri 14:00 · 214 km',
+      '24 h left · 214 km',
     )
     const late = destinationView({ ...job, deliveryTime: now - 10 }, null, telemetry, [], text, 0)
     expect(late?.detail).toBe('Late · 214 km')
@@ -96,6 +96,12 @@ describe('destinationView', () => {
     expect(view?.detail).toBe('17:00 arrival · 3:00 hrs')
   })
 
+  it('shows the delivery in the player’s language: the map’s city and the company’s Chinese name', () => {
+    const localizedJob = { ...job, destinationCity: 'Valladolid', destinationCompany: 'Transportes Caballeria' }
+    const view = destinationView(localizedJob, null, telemetry, [label('Valladolid', 0, '巴利亚多利德')], stringsFor('zh_cn'), 0)
+    expect(view).toMatchObject({ kicker: '交货', title: '卡瓦列里亚运输', subtitle: '巴利亚多利德' })
+  })
+
   it('shows nothing without a job or a route', () => {
     expect(destinationView(null, null, { ...telemetry, navigationDistance: 0 }, [], text, 0)).toBeNull()
   })
@@ -111,8 +117,10 @@ describe('helpers', () => {
     expect(formatDeadline(now + 2 * 1440 - 4 * 60, now, stringsFor('tr_tr').days, twelve('tr_tr'))).toBe('Cmt ÖÖ 10:00')
   })
 
-  it('finds the nearest city, by the name the map shows', () => {
-    expect(nearestCity([4000, 0], [label('Bari', 1000), label('Τάραντας', 5000, 'Taranto')])).toBe('Τάραντας')
+  it('finds the nearest city, named in the player’s language', () => {
+    // The map's own name is Greek; `localized` is the player's (here Italian, as the map was built).
+    expect(nearestCity([4000, 0], [label('Bari', 1000), label('Τάραντας', 5000, 'Taranto')])).toBe('Taranto')
+    expect(nearestCity([4000, 0], [label('Paris', 1000, '巴黎')])).toBe('巴黎')
     expect(nearestCity([0, 0], [])).toBeNull()
   })
 })

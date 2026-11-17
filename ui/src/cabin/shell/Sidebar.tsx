@@ -17,7 +17,9 @@ export function Sidebar() {
   const route = useCabin((state) => state.navigation.route)
   const homeTarget = useCabin((state) => homeButtonTarget(state.navigation))
   const gameTime = useLive((state) => (state.telemetry ? cabClock(state.telemetry, state.clockShift) : null))
-  const apps = sidebarApps(recents, useScreenProfile().recents ?? 3)
+  // Four at most (owner 2026-11-10: five pushed the sidebar's own controls off the screen in some trucks,
+  // the room a truck's screen has being what it is). A layout may ask for fewer still.
+  const apps = sidebarApps(recents, Math.min(useScreenProfile().recents ?? 4, 4))
   const clock = useClockStyle(false)
   const tablet = useLive((state) => state.screenLayout === 'tablet')
 

@@ -359,6 +359,7 @@ function collection(id: string): AppleMusicCollection {
       genre: found.album.genre,
       year: found.album.year,
       tracks: songsOf(found.artist, found.album),
+      playlists: [],
     }
   }
   const playlist = PLAYLISTS.find((each) => `playlists:${each.key}` === id)
@@ -369,6 +370,7 @@ function collection(id: string): AppleMusicCollection {
     genre: '',
     year: null,
     tracks: playlist.songs.map((i) => ALL_SONGS[i % ALL_SONGS.length]),
+    playlists: [],
   }
 }
 

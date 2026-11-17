@@ -82,6 +82,10 @@ export interface CompanionWords {
     coachPassengersDetail: string
     coachNote: string
     coachNoteAny: string
+  /** Which screen WestPlay fills first: the truck's own, or WestPlay's tablet. */
+  display: string
+  displayFirst: string
+  displayFirstDetail: string
     /** The game runs as administrator: WestPlay can't read its route, guidance or weather (owner 2026-10-28:
      * WestPlay doesn't reach into an elevated game; the player is told). */
     elevated: { title: string; text: string }
@@ -250,6 +254,14 @@ export interface CompanionWords {
     sub: string
     button: string
     note: string
+  }
+  /** The window’s close button, asked about first: quitting WestPlay stops it and leaves the truck’s screen to
+   * the game, so one stray press would be felt. */
+  quit?: {
+    title: string
+    text: string
+    cancel: string
+    confirm: string
   }
 }
 

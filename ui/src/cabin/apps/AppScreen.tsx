@@ -7,13 +7,13 @@ import { CalendarApp } from './calendar/CalendarApp'
 import { useLanguage, useText } from '../state/text'
 import { isCopied, noteOpened, openedBefore, saveCopy, savedCopy } from './launchCopies'
 import { MusicApp } from './music/MusicApp'
+import { QqApp } from './qq/QqApp'
 import { PlayerApp } from './player/PlayerApp'
 import { SafariApp } from './safari/SafariApp'
 import { SettingsApp } from './settings/SettingsApp'
-import { SpotifyApp } from './spotify/SpotifyApp'
-import { YouTubeMusicApp } from './youtubeMusic/YouTubeMusicApp'
+import { WebApp } from './web/WebAppScreen'
+import { VehicleApp } from './vehicle/VehicleApp'
 import { WeatherApp } from './weather/WeatherApp'
-import { YouTubeApp } from './youtube/YouTubeApp'
 import './apps.css'
 
 /**
@@ -78,14 +78,29 @@ function AppContent({ app }: { app: AppId }) {
           <MapView interactive />
         </section>
       )
+    // Apple Music's own player, as WestPlay shipped it (westplay_host::apple_music).
     case 'music':
       return <MusicApp />
-    case 'youtube':
-      return <YouTubeApp />
+    // The sites, whole, in the host's WebView under this page: NetEase Cloud Music, Bilibili, QQ Music,
+    // Qingting FM, Douyin and Kugou Music (apps/web, westplay_host::webapp). Each keeps the id of the app it
+    // stands in for (the older app's slot, its icon and its name being the site's now).
     case 'spotify':
-      return <SpotifyApp />
+      return <WebApp site="netease" />
+    case 'youtube':
+      return <WebApp site="bilibili" />
     case 'youtubeMusic':
-      return <YouTubeMusicApp />
+      // QQ Music's own player (crates/host qq_music.rs, ui/src/cabin/apps/qq): WestPlay's drawn shell
+      // over a hidden page of the middle layer's own data.
+      return <QqApp />
+    case 'podcasts':
+      return <WebApp site="qingting" />
+    case 'douyin':
+      return <WebApp site="douyin" />
+    case 'kugou':
+      return <WebApp site="kugou" />
+    // The truck's own condition, from the game's telemetry.
+    case 'vehicle':
+      return <VehicleApp />
     case 'settings':
       return <SettingsApp />
     case 'weather':

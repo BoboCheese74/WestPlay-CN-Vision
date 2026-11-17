@@ -22,6 +22,7 @@ export const SCREEN_LAYOUT_IDS = [
   'man-lions-coach',
   'scania-touring',
   'man-lions-24',
+  'man-tgx-2020',
 ] as const
 
 export type ScreenLayoutId = (typeof SCREEN_LAYOUT_IDS)[number]
@@ -58,6 +59,7 @@ const PAGE_HEIGHTS: Partial<Record<ScreenLayoutId, number>> = {
   'man-lions-coach': 778,
   'scania-touring': 730,
   'man-lions-24': 784,
+  'man-tgx-2020': 720,
 }
 
 /** Frame pixels (SCREEN_WIDTH x SCREEN_HEIGHT, as a screen's script and the truck's strip are measured) as the
@@ -220,6 +222,7 @@ const PROFILES: readonly ProfileEntry[] = [
   // (owner 2026-11-12, 13). At 1.2, chosen by eye in the cab preview: three columns of apps. Two sidebar apps (owner
   // 2026-11-13, after seeing three).
   { layout: 'man-lions-24', profile: { name: "MAN Lion's Coach (2024)", oemStrip: null, scale: 1.2, recents: 2 } },
+    { layout: 'man-tgx-2020', profile: { name: 'MAN TGX 2020', oemStrip: null, scale: 1 } },
 ]
 
 /** The sidebar's buttons on every screen: the tablet's twice their first size (owner 2026-11-11: smaller than a finger

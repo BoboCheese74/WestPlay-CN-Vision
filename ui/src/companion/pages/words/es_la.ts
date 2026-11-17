@@ -15,6 +15,9 @@ export const words: CompanionWords = {
     },
     gpuNote: 'Si la pantalla se traba, elige otra tarjeta: WestPlay se reinicia en ella.',
     coachSpeakers: 'Altavoces del autobús',
+    display: 'Truck Screen',
+    displayFirst: 'WestPlay tablet',
+    displayFirstDetail: 'WestPlay fills the tablet first, even in a truck whose own screen shows it.',
     coachNote:
       'Altavoces de los pasajeros de este autobús: {n}, todos a la vez. Con un procesador poco potente, el juego puede trabarse.',
     coachNoteAny:
@@ -34,6 +37,8 @@ export const words: CompanionWords = {
     pressKey: 'Presiona una tecla…',
     keybindsNote:
       'Haz clic en un atajo y presiona su nueva tecla. Si a la vez mantienes {key}, el atajo solo funciona mientras usas la pantalla. Esc para cancelar.',
+    brightnessDown: 'Brightness down',
+    brightnessUp: 'Brightness up',
   },
   accounts: {
     ...spain.accounts,

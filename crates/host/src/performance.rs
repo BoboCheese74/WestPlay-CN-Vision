@@ -63,6 +63,8 @@ pub enum Profile {
     Cab,
     Spotify,
     AppleMusic,
+    /// A site's own page in the web app, under the site's name (Bilibili, QQ Music, NetEase Cloud Music).
+    WebApp(&'static str),
 }
 
 /// What the host knows each second while the game runs.
@@ -359,6 +361,7 @@ fn parts_of(
             let part = match profile {
                 Profile::Spotify => "Spotify",
                 Profile::AppleMusic => "Apple Music",
+                Profile::WebApp(name) => name,
                 Profile::Cab => match kind {
                     COREWEBVIEW2_PROCESS_KIND_BROWSER => "browser",
                     COREWEBVIEW2_PROCESS_KIND_GPU => "GPU",
@@ -373,10 +376,19 @@ fn parts_of(
 
 /// What a renderer of the cab's profile draws, from the hosts of its pages.
 fn page_part(hosts: &[String], cab_host: &str) -> &'static str {
+    let any = |name: &str, suffix: &str| hosts.iter().any(|host| host == name || host.ends_with(suffix));
     if hosts.iter().any(|host| host == cab_host) {
         "cab page"
     } else if hosts.iter().any(|host| host == "youtube.com" || host.ends_with(".youtube.com")) {
         "YouTube"
+    } else if any("bilibili.com", ".bilibili.com") {
+        "Bilibili"
+    } else if any("y.qq.com", ".y.qq.com") || any("qq.com", ".qq.com") {
+        "QQ Music"
+    } else if any("music.163.com", ".music.163.com") || any("163.com", ".163.com") {
+        "NetEase Cloud Music"
+    } else if any("qtfm.cn", ".qtfm.cn") || any("qingting.fm", ".qingting.fm") {
+        "Qingting FM"
     } else {
         "other pages"
     }
@@ -747,6 +759,7 @@ mod tests {
         assert_eq!(page_part(&hosts(&["westplay.cabin"]), "westplay.cabin"), "cab page");
         assert_eq!(page_part(&hosts(&["www.youtube.com"]), "westplay.cabin"), "YouTube");
         assert_eq!(page_part(&hosts(&["music.youtube.com"]), "westplay.cabin"), "YouTube");
+        assert_eq!(page_part(&hosts(&["www.qtfm.cn"]), "westplay.cabin"), "Qingting FM");
         assert_eq!(page_part(&hosts(&["accounts.google.com"]), "westplay.cabin"), "other pages");
     }
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { poweredOff, withGame } from './withGame'
+import { poweredOff, poweredOn, withGame } from './withGame'
 
 describe('withGame', () => {
   it('pauses a video playing as the player goes away from the game', () => {
@@ -31,5 +31,14 @@ describe('poweredOff', () => {
     expect(poweredOff(false, true)).toBe(true)
     expect(poweredOff(true, true)).toBe(false)
     expect(poweredOff(true, false)).toBe(false)
+  })
+})
+
+describe('poweredOn', () => {
+  it('is the moment the electrics come back, not while they stay on nor as they go off', () => {
+    expect(poweredOn(true, false)).toBe(true)
+    expect(poweredOn(false, false)).toBe(false)
+    expect(poweredOn(true, true)).toBe(false)
+    expect(poweredOn(false, true)).toBe(false)
   })
 })

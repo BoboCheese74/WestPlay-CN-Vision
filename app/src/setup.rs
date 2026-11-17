@@ -418,8 +418,10 @@ fn look_at_mods(inner: &Inner, looked: &mut HashMap<PathBuf, ModsStamp>) {
 /// [`look_at_mods`] at `game`.
 fn look_at_game_mods(game: &Game, looked: &mut HashMap<PathBuf, ModsStamp>) {
     let Some(ours) = places::westplay_documents().map(|dir| dir.join(game_mod::file_name(game.kind))) else { return };
-    // Not set up yet (setup makes it), or the game has it open.
-    if !ours.is_file() || game::running() {
+    // The game has it open: nothing to write while it does. A mod that's gone (taken out by hand,
+    // or never made) is made again from this look — not waited for on setup (owner 2026-11-14: the
+    // companion kept the game's own screens after the mod was taken out).
+    if game::running() {
         return;
     }
     let mods = installed_mod_files(game);
@@ -472,7 +474,11 @@ fn look_at_game_mods(game: &Game, looked: &mut HashMap<PathBuf, ModsStamp>) {
     let screens_current = game_mod::mod_screens_current(&screen_mods, &ours);
     let marks = cab_mark::for_tablet(&files, &mods, &mod_trucks, &profiles_mods(game));
     let marks_current = cab_mark::current(&marks, &ours);
-    if wanted != present || !screens_current || !marks_current {
+    // The mod's layout as this WestPlay makes it: one made by an earlier version (before the mirrors, say) is made
+    // again, whatever the installed mods say — the page would otherwise cut its holes at nothing (owner
+    // 2026-11-03: the mirrors' hole was black).
+    let layout_current = game_mod::layout_current(&ours);
+    if wanted != present || !screens_current || !marks_current || !layout_current {
         let made = game_mod::build(&files, &mod_trucks, &screen_mods, &marks).map_err(|error| error.to_string());
         let made = made.and_then(|(bytes, built)| {
             let dir = ours.parent().ok_or("no folder")?;
@@ -488,12 +494,15 @@ fn look_at_game_mods(game: &Game, looked: &mut HashMap<PathBuf, ModsStamp>) {
             built.patched.iter().copied().filter(|layout| game_mod::mod_screen_layout(layout)).collect();
         log!(
             "setup: WestPlay's mod made again: the tablet at {} places (was {}), {} of them the mods' trucks'; the mod \
-             vehicles' screens: {screens:?}; the cab's mark in {} dashboards",
+             vehicles' screens: {screens:?}; the cab's mark in {} dashboards; layout {} (the mod's was {})",
             wanted.len(),
             present.len(),
             wanted.iter().filter(|spot| mod_trucks.contains(spot)).count(),
-            built.cab_marks
+            built.cab_marks,
+            game_mod::LAYOUT,
+            layout_current
         );
+        log!("setup: patched {:?}; missing {:?}", built.patched, built.missing);
         for (script, why) in &marks.left {
             log!("setup: the cab's mark not in {script}: {why}");
         }
@@ -583,6 +592,37 @@ fn install_mod(game: &Game) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+/// The mod WestPlay ships with (`westplay.scs` beside the program), put where the plugin mounts it from when this PC
+/// has none yet (owner 2026-11-03: “缺了就放一份”). It is a stand-in: built from another PC's game, it carries
+/// the previous [`game_mod::LAYOUT`], so [`look_at_mods`] makes it again from this PC's own game and installed mods as
+/// soon as the game is closed.
+pub fn seed_mod(resource: Option<PathBuf>) {
+    let (Some(seed), Some(dir)) =
+        (resource.map(|dir| dir.join(game_mod::file_name(Kind::Ets2))), places::westplay_documents())
+    else {
+        return;
+    };
+    let ours = dir.join(game_mod::file_name(Kind::Ets2));
+    if ours.is_file() || !seed.is_file() {
+        return;
+    }
+    match seed_into(&seed, &dir) {
+        Ok(size) => log!("setup: the mod that came with WestPlay is in place ({size} B): the PC's own game makes it again"),
+        Err(error) => log!("setup: the mod that came with WestPlay not put in place: {error}"),
+    }
+}
+
+/// [`seed_mod`]'s copy, on its own: `seed` into `dir` as WestPlay's mod (`game_mod::file_name`), unless one is there
+/// already. Answers how many bytes were put in place.
+fn seed_into(seed: &Path, dir: &Path) -> std::io::Result<u64> {
+    let bytes = std::fs::read(seed)?;
+    if dir.join(game_mod::file_name(Kind::Ets2)).is_file() {
+        return Ok(0);
+    }
+    game_mod::install(&bytes, dir, Kind::Ets2)?;
+    Ok(bytes.len() as u64)
 }
 
 fn install_plugin(game: &Game, ours: &Path, administrator: bool) -> PluginOutcome {
@@ -851,6 +891,27 @@ mod tests {
         assert!(script.contains("Get-Process -Id 4242"));
         assert!(script.contains("WaitForExit"));
         assert!(script.contains(r"@('C:\Users\O''Brien\WestPlay')"));
+    }
+
+    /// The mod that came with WestPlay: put where there is none, never over one this PC already has.
+    #[test]
+    fn the_seed_is_put_in_place_only_where_theres_no_mod() {
+        let root = std::env::temp_dir().join(format!("westplay-seed-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let resources = root.join("resources");
+        let documents = root.join("documents");
+        std::fs::create_dir_all(&resources).unwrap();
+        std::fs::create_dir_all(&documents).unwrap();
+        let seed = resources.join(game_mod::file_name(Kind::Ets2));
+        std::fs::write(&seed, b"a stand-in").unwrap();
+
+        assert_eq!(seed_into(&seed, &documents).unwrap(), 10);
+        assert_eq!(std::fs::read(documents.join(game_mod::file_name(Kind::Ets2))).unwrap(), b"a stand-in");
+
+        std::fs::write(documents.join(game_mod::file_name(Kind::Ets2)), b"made here").unwrap();
+        assert_eq!(seed_into(&seed, &documents).unwrap(), 0);
+        assert_eq!(std::fs::read(documents.join(game_mod::file_name(Kind::Ets2))).unwrap(), b"made here");
+        std::fs::remove_dir_all(&root).unwrap();
     }
 
     /// The real step, hidden: it waits for a process still running (a short ping) to end, then removes a folder.

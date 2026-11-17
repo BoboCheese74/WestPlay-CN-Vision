@@ -341,6 +341,68 @@ impl SignInWindow {
 
     /// The window in front, its page taking the keyboard (also when it's already open: the sign-in asked for
     /// again).
+    /// The page's cookies as one `name=value; name=value` string, as its WebView holds them now: taken
+    /// before the window goes away, for a session to be handed back to the app's own page later
+    /// (weblogin.rs, `QqMusic::restore_session`). A cookie whose page asks that it stay off scripts is
+    /// left out (the app's hidden page is a script, and can't read one anyway).
+    pub fn take_cookies(&self) -> Option<String> {
+        use webview2_com::GetCookiesCompletedHandler;
+        use webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2_2;
+        use windows::core::HSTRING;
+        // The page's own profile, alive as long as its window.
+        // SAFETY: the WebView is alive while `self` is; the URI is this process's own string.
+        let manager = unsafe { self.webview.cast::<ICoreWebView2_2>().ok()?.CookieManager().ok()? };
+        let uri = HSTRING::from(self.site.home);
+        let read: std::rc::Rc<std::cell::RefCell<Vec<(String, String, bool)>>> = Default::default();
+        let into = read.clone();
+        let read_one = GetCookiesCompletedHandler::wait_for_async_operation(
+            Box::new(move |handler| unsafe {
+                manager.GetCookies(&uri, &handler).map_err(webview2_com::Error::WindowsError)
+            }),
+            Box::new(move |error, list| {
+                error?;
+                let Some(list) = list else { return Ok(()) };
+                // SAFETY: the list WebView2 handed over, read within its count; each cookie's strings
+                // are CoTaskMem's, freed by `CoTaskMemPWSTR`.
+                unsafe {
+                    let mut count = 0;
+                    list.Count(&mut count)?;
+                    for at in 0..count {
+                        let cookie = list.GetValueAtIndex(at)?;
+                        let text = |read: &dyn Fn(&mut windows::core::PWSTR) -> windows::core::Result<()>| {
+                            let mut value = windows::core::PWSTR::null();
+                            if read(&mut value).is_err() || value.is_null() {
+                                return String::new();
+                            }
+                            webview2_com::CoTaskMemPWSTR::from(value).to_string()
+                        };
+                        let mut http_only = windows::core::BOOL::default();
+                        let _ = cookie.IsHttpOnly(&mut http_only);
+                        into.borrow_mut().push((
+                            text(&|value| cookie.Name(value)),
+                            text(&|value| cookie.Value(value)),
+                            http_only.as_bool(),
+                        ));
+                    }
+                }
+                Ok(())
+            }),
+        );
+        read_one.ok()?;
+        let cookies = read.borrow().clone();
+        if cookies.is_empty() {
+            return None;
+        }
+        Some(
+            cookies
+                .into_iter()
+                .filter(|(_, _, http_only)| !http_only)
+                .map(|(name, value, _)| format!("{name}={value}"))
+                .collect::<Vec<_>>()
+                .join("; "),
+        )
+    }
+
     pub fn bring_forward(&self) {
         // SAFETY: the window and the controller live as long as `self`.
         unsafe {

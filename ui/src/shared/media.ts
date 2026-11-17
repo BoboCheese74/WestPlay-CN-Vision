@@ -3,7 +3,7 @@
  * Dashboard shows it, and its controls.
  */
 
-export type MusicService = 'appleMusic' | 'spotify' | 'youTubeMusic' | 'player'
+export type MusicService = 'appleMusic' | 'spotify' | 'youTubeMusic' | 'webApp' | 'player' | 'qqMusic'
 
 export interface MediaSource {
   /** Which player it is (`westplay-apple-music`). */
@@ -15,6 +15,8 @@ export interface MediaSource {
   /** Key of the track's artwork; `null` when it has none. */
   artwork: string | null
   status: 'playing' | 'paused' | 'stopped'
+  /** The line of the song's words it's at, where the player has one (a site's page: webapp). */
+  lyric?: string | null
   /** The position at `positionAt` (Unix ms); while playing, the clock runs on from there. */
   positionMs: number
   positionAt: number

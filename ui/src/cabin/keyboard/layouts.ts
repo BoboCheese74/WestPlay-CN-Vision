@@ -12,10 +12,12 @@ import { kanaTyped } from './kana'
  * characters, so Chinese types Latin letters, as Vietnamese does without Telex's tone marks.
  */
 
-/** A keyboard, by the letters it has. */
+/** A keyboard, by the letters it has. `zh` is the cabin's own Chinese input method's keyboard (plain QWERTY,
+ * the letters compose pinyin — store.ts, pinyin.ts). */
 export type Language =
   | 'en'
   | 'tr'
+  | 'zh'
   | 'de'
   | 'fr'
   | 'es'
@@ -58,6 +60,8 @@ const QWERTZ = ['qwertzuiop', 'asdfghjkl', 'yxcvbnm'] as const
 const KEYBOARDS: Record<Language, Letters> = {
   en: { rows: QWERTY, locale: 'en-GB' },
   tr: { rows: ['qwertyuıopğü', 'asdfghjklşi', 'zxcvbnmöç'], locale: 'tr-TR' },
+  // Chinese types Latin letters here, as pinyin; the input method composes them and offers candidates.
+  zh: { rows: QWERTY, locale: 'zh-Hans-CN' },
   de: { rows: ['qwertzuiopü', 'asdfghjklöä', 'yxcvbnm'], locale: 'de-DE' },
   fr: { rows: ['azertyuiop', 'qsdfghjklm', 'wxcvbn'], locale: 'fr-FR' },
   es: { rows: ['qwertyuiop', 'asdfghjklñ', 'zxcvbnm'], locale: 'es-ES' },
@@ -120,10 +124,15 @@ const BY_LANGUAGE: Record<string, Language> = {
   ka: 'ka',
   ja: 'ja',
   ko: 'ko',
+  // The game's Chinese is the cabin's own input method (pinyin): plain QWERTY, the letters compose pinyin.
+  zh_cn: 'zh',
+  zh_tw: 'zh',
+  zh: 'zh',
 }
 
 /** The keyboard for the cabin's language (a game code, `de_de`): its own, or QWERTY (English, Italian, Dutch,
- * Portuguese, Polish, Romanian, the Baltic languages, Canada's French, Vietnamese, Chinese). */
+ * Portuguese, Polish, Romanian, the Baltic languages, Canada's French, Vietnamese), or the cabin's Chinese
+ * input method (`zh`, for the game's Chinese). */
 export function keyboardLanguage(language: CabinLanguage): Language {
   return BY_LANGUAGE[language] ?? BY_LANGUAGE[language.slice(0, 2)] ?? 'en'
 }
@@ -181,8 +190,24 @@ export function capital(char: string, language: Language): string {
   return char.toLocaleUpperCase(locale)
 }
 
-/** The other keyboard, for the globe key: English from the language's own, the language's own from English. */
+/** The languages the globe key takes the keyboard round: Chinese (the input method) → English → Turkish, the
+ * owner's order (2026-11-02). */
+export const KEYBOARD_LANGUAGES: readonly Language[] = ['zh', 'en', 'tr']
+
+/**
+ * The next language the globe key takes the keyboard to. From the cabin's own Chinese input method's keyboard
+ * one press gets plain English — the way out of the input method — and three come back to Chinese.
+ */
+export function nextLanguage(language: Language): Language {
+  const at = KEYBOARD_LANGUAGES.indexOf(language)
+  return KEYBOARD_LANGUAGES[(at + 1) % KEYBOARD_LANGUAGES.length] ?? 'en'
+}
+
+/** The other keyboard, for the globe key: the cabin's Chinese input method and its two neighbours cycle
+ * zh → en → tr → zh (the owner's order, 2026-11-02: English one press from Chinese is the way out of the input
+ * method); every other language toggles between its own keyboard and English. */
 export function otherLanguage(language: Language, own: Language): Language {
+  if (own === 'zh' || own === 'tr') return nextLanguage(language)
   return language === own ? 'en' : own
 }
 

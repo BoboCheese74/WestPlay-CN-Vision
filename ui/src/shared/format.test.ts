@@ -1,7 +1,19 @@
 import { describe, expect, it } from 'vitest'
-import { formatGameTime, formatTripDistance, formatTripTime, roadSpeed } from './format'
+import { formatGameTime, formatTimeLeft, formatTripDistance, formatTripTime, roadSpeed } from './format'
 
-const words = { minutes: (m: number) => `${m} min`, hours: (h: number, m: string) => `${h}:${m} hrs` }
+const words = {
+  minutes: (m: number) => `${m} min`,
+  hours: (h: number, m: string) => `${h}:${m} hrs`,
+  hoursOnly: (h: number) => `${h} h`,
+}
+
+describe('time left', () => {
+  it('says whole hours, then minutes while there is less than one', () => {
+    expect(formatTimeLeft(1660, words)).toBe('27 h')
+    expect(formatTimeLeft(59, words)).toBe('59 min')
+    expect(formatTimeLeft(-5, words)).toBe('0 min')
+  })
+})
 
 describe('the clock', () => {
   const period = (time: string, afternoon: boolean) => `${time} ${afternoon ? 'PM' : 'AM'}`

@@ -96,7 +96,7 @@ impl Capture {
         let session = pool.CreateCaptureSession(&item)?;
         let _ = session.SetIsCursorCaptureEnabled(false);
 
-        let mailbox = Arc::new(Mailbox::new(Instant::now()));
+        let mailbox = Arc::new(Mailbox::new(Instant::now(), FRAME_INTERVAL));
         let arrived = Arc::new(AtomicU64::new(0));
         pool.FrameArrived(&TypedEventHandler::<Direct3D11CaptureFramePool, IInspectable>::new({
             let mailbox = mailbox.clone();
@@ -165,6 +165,11 @@ impl Capture {
     /// Whether the cursor is drawn here (else the page draws its own).
     pub fn draws_cursor(&self) -> bool {
         self.painter.is_some()
+    }
+
+    /// Frames this is to publish a second from here on (the player's Screen Refresh Rate: [`interval_for`]).
+    pub fn set_fps(&self, fps: u32) {
+        self.mailbox.set_interval(interval_for(fps));
     }
 
     /// Whether the shared texture can't be used any more (its lock abandoned): build the pipeline anew.
@@ -441,11 +446,18 @@ struct Mailbox<F> {
 struct Slot<F> {
     frame: Option<F>,
     due: Instant,
+    /// The time between frames published: what the player's refresh rate asks for.
+    interval: Duration,
 }
 
 impl<F> Mailbox<F> {
-    fn new(now: Instant) -> Self {
-        Self { slot: Mutex::new(Slot { frame: None, due: now }) }
+    fn new(now: Instant, interval: Duration) -> Self {
+        Self { slot: Mutex::new(Slot { frame: None, due: now, interval }) }
+    }
+
+    /// Another refresh rate from here on: the frame waiting keeps its turn, the next is timed from it.
+    fn set_interval(&self, interval: Duration) {
+        self.slot().interval = interval;
     }
 
     fn slot(&self) -> std::sync::MutexGuard<'_, Slot<F>> {
@@ -471,7 +483,8 @@ impl<F> Mailbox<F> {
     /// over from it rather than letting frames catch up.
     fn published(&self, now: Instant) {
         let mut slot = self.slot();
-        slot.due = if now >= slot.due + FRAME_INTERVAL { now + FRAME_INTERVAL } else { slot.due + FRAME_INTERVAL };
+        let interval = slot.interval;
+        slot.due = if now >= slot.due + interval { now + interval } else { slot.due + interval };
     }
 
     /// The frame taken couldn't go out: it waits again, unless a newer one came meanwhile (then it's
@@ -508,7 +521,7 @@ mod tests {
     #[test]
     fn a_frame_arriving_early_waits_for_its_turn_and_still_goes_out() {
         let start = Instant::now();
-        let mailbox = Mailbox::new(start);
+        let mailbox = Mailbox::new(start, FRAME_INTERVAL);
         // The first frame goes out at once.
         mailbox.put(1);
         assert_eq!(flush(&mailbox, start, |_| true), Some(true));
@@ -531,7 +544,7 @@ mod tests {
     #[test]
     fn a_frame_the_game_was_busy_for_is_tried_again_unless_a_newer_came() {
         let start = Instant::now();
-        let mailbox = Mailbox::new(start);
+        let mailbox = Mailbox::new(start, FRAME_INTERVAL);
         mailbox.put(1);
         assert_eq!(flush(&mailbox, start, |_| false), Some(false));
         // Still waiting, and goes out on the next try.
@@ -552,7 +565,7 @@ mod tests {
     #[test]
     fn stays_on_schedule_without_a_backlog_after_idling() {
         let start = Instant::now();
-        let mailbox = Mailbox::new(start);
+        let mailbox = Mailbox::new(start, FRAME_INTERVAL);
         mailbox.put(0);
         flush(&mailbox, start, |_| true);
         // A 75 Hz stream: frames go out on the 60 Hz grid.
@@ -626,7 +639,7 @@ mod tests {
     #[test]
     fn handing_frames_over_under_the_device_lock_never_deadlocks_with_publishing() {
         let device = Arc::new(Mutex::new(()));
-        let mailbox = Arc::new(Mailbox::new(Instant::now()));
+        let mailbox = Arc::new(Mailbox::new(Instant::now(), FRAME_INTERVAL));
         let (done, finished) = mpsc::channel();
         let capture = {
             let (device, mailbox, done) = (device.clone(), mailbox.clone(), done.clone());
@@ -656,4 +669,11 @@ mod tests {
         capture.join().unwrap();
         host.join().unwrap();
     }
+}
+
+/// The interval a screen's refresh rate asks for (the settings' Screen Refresh Rate), kept within what the
+/// game's own frames allow: at least [`MAX_FPS`] a second's worth, and never none.
+fn interval_for(fps: u32) -> Duration {
+    let capped = fps.clamp(1, MAX_FPS);
+    Duration::from_micros(1_000_000 / capped as u64)
 }

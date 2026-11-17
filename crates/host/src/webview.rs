@@ -6,24 +6,28 @@
 //! top, YouTube's player under it while it plays), make up the frame that is captured.
 
 use std::cell::{Cell, RefCell};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::{Mutex, mpsc};
 use std::time::{Duration, Instant};
 
 use webview2_com::Microsoft::Web::WebView2::Win32::{
     COREWEBVIEW2_COLOR, COREWEBVIEW2_HOST_RESOURCE_ACCESS_KIND_ALLOW, COREWEBVIEW2_HOST_RESOURCE_ACCESS_KIND_DENY_CORS,
-    COREWEBVIEW2_MOUSE_EVENT_KIND, COREWEBVIEW2_MOUSE_EVENT_VIRTUAL_KEYS, COREWEBVIEW2_PROCESS_FAILED_KIND,
-    COREWEBVIEW2_PROCESS_FAILED_KIND_BROWSER_PROCESS_EXITED, COREWEBVIEW2_PROCESS_FAILED_KIND_RENDER_PROCESS_EXITED,
+    COREWEBVIEW2_MOUSE_EVENT_KIND, COREWEBVIEW2_MOUSE_EVENT_VIRTUAL_KEYS, COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC,
+    COREWEBVIEW2_PROCESS_FAILED_KIND, COREWEBVIEW2_PROCESS_FAILED_KIND_BROWSER_PROCESS_EXITED,
+    COREWEBVIEW2_PROCESS_FAILED_KIND_RENDER_PROCESS_EXITED,
     COREWEBVIEW2_PROCESS_FAILED_KIND_RENDER_PROCESS_UNRESPONSIVE, CreateCoreWebView2EnvironmentWithOptions,
     ICoreWebView2, ICoreWebView2_2, ICoreWebView2_3, ICoreWebView2CompositionController, ICoreWebView2Controller,
-    ICoreWebView2Controller2, ICoreWebView2Controller3, ICoreWebView2Environment, ICoreWebView2Environment3,
-    ICoreWebView2EnvironmentOptions, ICoreWebView2Settings5, ICoreWebView2Settings6,
+    ICoreWebView2Controller2, ICoreWebView2Controller3, ICoreWebView2Controller4, ICoreWebView2Environment,
+    ICoreWebView2Environment3,
+    ICoreWebView2EnvironmentOptions, ICoreWebView2Settings2, ICoreWebView2Settings5, ICoreWebView2Settings6,
 };
 use webview2_com::{
     AddScriptToExecuteOnDocumentCreatedCompletedHandler, CoTaskMemPWSTR, CoreWebView2EnvironmentOptions,
     CreateCoreWebView2CompositionControllerCompletedHandler, CreateCoreWebView2EnvironmentCompletedHandler,
-    ProcessFailedEventHandler, WebMessageReceivedEventHandler,
+    DocumentTitleChangedEventHandler, NavigationStartingEventHandler, NewWindowRequestedEventHandler,
+    ProcessFailedEventHandler,
+    WebMessageReceivedEventHandler,
 };
 use windows::System::DispatcherQueueController;
 use windows::UI::Composition::{Compositor, ContainerVisual, Visual};
@@ -66,6 +70,198 @@ pub fn note_browser(webview: &ICoreWebView2) {
     }
 }
 
+impl OffscreenWebView {
+
+    /// The WebView itself, for what only a browser's tab needs (safari.rs: its navigation's events).
+    pub fn core(&self) -> &ICoreWebView2 {
+        &self.webview
+    }
+
+    /// The colour shown where the page draws nothing (WestPlay's own pages: none, the game's screen through;
+    /// a web page: white, as a browser's).
+    pub fn set_background(&self, red: u8, green: u8, blue: u8) -> windows::core::Result<()> {
+        // SAFETY: the controller is alive as long as `self`; a plain value.
+        unsafe {
+            self.controller.cast::<ICoreWebView2Controller2>()?.SetDefaultBackgroundColor(COREWEBVIEW2_COLOR {
+                A: 255,
+                R: red,
+                G: green,
+                B: blue,
+            })
+        }
+    }
+
+    /// The WebView's picture cut to its rectangle (`width` x `height`) with its bottom corners rounded by `radius` (0:
+    /// not cut): a web page shown where the cab has round corners (Safari's, at the app's foot) shows nothing past them
+    /// (owner 2026-11-08: a thin strip of the page showed round the corners, the cab's own there see-through).
+    pub fn round_bottom_corners(&self, width: f32, height: f32, radius: f32) -> windows::core::Result<()> {
+        if radius <= 0.0 {
+            return self.root.SetClip(None::<&windows::UI::Composition::CompositionClip>);
+        }
+        let compositor = self.root.Compositor()?;
+        let shape = compositor.CreateRoundedRectangleGeometry()?;
+        // Its top corners above the picture (not shown): only the bottom ones round it.
+        shape.SetOffset(Vector2 { X: 0.0, Y: -radius })?;
+        shape.SetSize(Vector2 { X: width, Y: height + radius })?;
+        shape.SetCornerRadius(Vector2 { X: radius, Y: radius })?;
+        let clip = compositor.CreateGeometricClipWithGeometry(&shape)?;
+        self.root.SetClip(&clip)
+    }
+
+    /// The cookies this WebView's profile sends to `uri`, read (waiting for WebView2's answer).
+    pub fn cookies(&self, uri: &str) -> Result<Vec<Cookie>, Error> {
+        use webview2_com::GetCookiesCompletedHandler;
+        use webview2_com::Microsoft::Web::WebView2::Win32::{COREWEBVIEW2_COOKIE_SAME_SITE_KIND, ICoreWebView2_2};
+        // SAFETY: the WebView's own cookie manager, alive while it is.
+        let manager = unsafe { self.webview.cast::<ICoreWebView2_2>()?.CookieManager()? };
+        let uri = HSTRING::from(uri);
+        let read: Rc<RefCell<Vec<Cookie>>> = Rc::default();
+        let into = read.clone();
+        GetCookiesCompletedHandler::wait_for_async_operation(
+            // SAFETY: `uri` lives through the call; the handler is kept alive until WebView2 calls it.
+            Box::new(move |handler| unsafe {
+                manager.GetCookies(&uri, &handler).map_err(webview2_com::Error::WindowsError)
+            }),
+            Box::new(move |error, list| {
+                error?;
+                let Some(list) = list else { return Ok(()) };
+                let text = |read: &dyn Fn(&mut PWSTR) -> windows::core::Result<()>| {
+                    let mut value = PWSTR::null();
+                    if read(&mut value).is_err() || value.is_null() {
+                        return String::new();
+                    }
+                    CoTaskMemPWSTR::from(value).to_string()
+                };
+                let flag = |read: &dyn Fn(&mut windows::core::BOOL) -> windows::core::Result<()>| {
+                    let mut value = windows::core::BOOL::default();
+                    read(&mut value).is_ok() && value.as_bool()
+                };
+                // SAFETY: the list WebView2 handed over, read within its count; each cookie's strings CoTaskMem
+                // (freed by `CoTaskMemPWSTR`), its other values plain.
+                unsafe {
+                    let mut count = 0;
+                    list.Count(&mut count)?;
+                    for at in 0..count {
+                        let cookie = list.GetValueAtIndex(at)?;
+                        let mut expires = 0.0;
+                        let _ = cookie.Expires(&mut expires);
+                        let mut same_site = COREWEBVIEW2_COOKIE_SAME_SITE_KIND::default();
+                        let _ = cookie.SameSite(&mut same_site);
+                        into.borrow_mut().push(Cookie {
+                            name: text(&|value| cookie.Name(value)),
+                            value: text(&|value| cookie.Value(value)),
+                            domain: text(&|value| cookie.Domain(value)),
+                            path: text(&|value| cookie.Path(value)),
+                            expires,
+                            http_only: flag(&|value| cookie.IsHttpOnly(value)),
+                            secure: flag(&|value| cookie.IsSecure(value)),
+                            session: flag(&|value| cookie.IsSession(value)),
+                            same_site: same_site.0,
+                        });
+                    }
+                }
+                Ok(())
+            }),
+        )?;
+        Ok(read.take())
+    }
+
+    /// Adds `cookies` to this WebView's profile (or updates them: the same name, domain and path).
+    pub fn add_cookies(&self, cookies: &[Cookie]) -> windows::core::Result<()> {
+        use webview2_com::Microsoft::Web::WebView2::Win32::{COREWEBVIEW2_COOKIE_SAME_SITE_KIND, ICoreWebView2_2};
+        // SAFETY: the WebView's own cookie manager, alive while it is; the strings live through each call.
+        unsafe {
+            let manager = self.webview.cast::<ICoreWebView2_2>()?.CookieManager()?;
+            for cookie in cookies {
+                let made = manager.CreateCookie(
+                    &HSTRING::from(&cookie.name),
+                    &HSTRING::from(&cookie.value),
+                    &HSTRING::from(&cookie.domain),
+                    &HSTRING::from(&cookie.path),
+                )?;
+                if !cookie.session {
+                    made.SetExpires(cookie.expires)?;
+                }
+                made.SetIsHttpOnly(cookie.http_only)?;
+                made.SetIsSecure(cookie.secure)?;
+                made.SetSameSite(COREWEBVIEW2_COOKIE_SAME_SITE_KIND(cookie.same_site))?;
+                manager.AddOrUpdateCookie(&made)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// The scale the page is drawn at, as a monitor's: its CSS pixels this many of the WebView's, the page's own
+    /// pixel ratio (`devicePixelRatio`), its bounds still the WebView's pixels.
+    pub fn set_rasterization_scale(&self, scale: f64) -> windows::core::Result<()> {
+        use webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2Controller3;
+        // SAFETY: the controller is alive as long as `self`; a plain value.
+        unsafe { self.controller.cast::<ICoreWebView2Controller3>()?.SetRasterizationScale(scale) }
+    }
+
+    /// A DevTools protocol method called, waiting for its answer (JSON).
+    pub fn devtools_answer(&self, method: &str, params: &str) -> Result<String, Error> {
+        use webview2_com::CallDevToolsProtocolMethodCompletedHandler;
+        let webview = self.webview.clone();
+        let (method, params) = (HSTRING::from(method), HSTRING::from(params));
+        let result = std::rc::Rc::new(std::cell::RefCell::new(String::new()));
+        let written = result.clone();
+        CallDevToolsProtocolMethodCompletedHandler::wait_for_async_operation(
+            // SAFETY: the strings live through the call; the handler is kept alive until WebView2 calls it.
+            Box::new(move |handler| unsafe {
+                webview
+                    .CallDevToolsProtocolMethod(&method, &params, &handler)
+                    .map_err(webview2_com::Error::WindowsError)
+            }),
+            Box::new(move |error, json| {
+                *written.borrow_mut() = json;
+                error
+            }),
+        )?;
+        Ok(result.take())
+    }
+
+    /// The page's picture as WebView2 draws it, written to `path` as a PNG, without waiting: `done` once it's
+    /// written (`true`) or failed.
+    pub fn capture_png_later(&self, path: &Path, done: impl FnOnce(bool) + 'static) -> Result<(), Error> {
+        use webview2_com::CapturePreviewCompletedHandler;
+        use webview2_com::Microsoft::Web::WebView2::Win32::COREWEBVIEW2_CAPTURE_PREVIEW_IMAGE_FORMAT_PNG;
+        use windows::Win32::System::Com::{STGM_CREATE, STGM_WRITE};
+        use windows::Win32::UI::Shell::SHCreateStreamOnFileEx;
+        // SAFETY: the path lives through the call; the stream it gives is ours.
+        let stream = unsafe {
+            SHCreateStreamOnFileEx(&HSTRING::from(path.as_os_str()), (STGM_CREATE | STGM_WRITE).0, 0, true, None)?
+        };
+        let mut done = Some(done);
+        let handler = CapturePreviewCompletedHandler::create(Box::new(move |error| {
+            if let Some(done) = done.take() {
+                done(error.is_ok());
+            }
+            Ok(())
+        }));
+        // SAFETY: the stream is a local for the call (WebView2 keeps its own reference while it writes, letting go
+        // as it's done); WebView2 keeps its own reference to the handler.
+        unsafe { self.webview.CapturePreview(COREWEBVIEW2_CAPTURE_PREVIEW_IMAGE_FORMAT_PNG, &stream, &handler)? };
+        Ok(())
+    }
+}
+
+/// A cookie as one profile has it, to give another ([`OffscreenWebView::cookies`], [`OffscreenWebView::add_cookies`]).
+#[derive(Clone)]
+pub struct Cookie {
+    pub name: String,
+    pub value: String,
+    pub domain: String,
+    pub path: String,
+    /// When it expires, seconds since 1970 (none: `session`, it goes with the browser).
+    pub expires: f64,
+    pub http_only: bool,
+    pub secure: bool,
+    pub session: bool,
+    /// WebView2's same-site kind (`COREWEBVIEW2_COOKIE_SAME_SITE_KIND`).
+    pub same_site: i32,
+}
+
 /// The WebView2 browser processes the host started (its WebViews' and sign-in windows'): any other WebView2
 /// browser of WestPlay's is the companion window's own.
 pub fn host_browsers() -> Vec<u32> {
@@ -97,22 +293,6 @@ pub fn wait_for_browsers(timeout: Duration) {
             let _ = CloseHandle(process);
         }
     }
-}
-
-/// A cookie as one profile has it, to give another ([`OffscreenWebView::cookies`], [`OffscreenWebView::add_cookies`]).
-#[derive(Clone)]
-pub struct Cookie {
-    pub name: String,
-    pub value: String,
-    pub domain: String,
-    pub path: String,
-    /// When it expires, seconds since 1970 (none: `session`, it goes with the browser).
-    pub expires: f64,
-    pub http_only: bool,
-    pub secure: bool,
-    pub session: bool,
-    /// WebView2's same-site kind (`COREWEBVIEW2_COOKIE_SAME_SITE_KIND`).
-    pub same_site: i32,
 }
 
 /// A WebView2 process that failed, as far as it matters to WestPlay (the others, such as its GPU process,
@@ -292,6 +472,7 @@ impl OffscreenWebView {
             let _ = EnableWindow(host, false);
         }
 
+
         // SAFETY: WebView2 writes a CoTaskMem string into `version`, read before it's dropped.
         let version = unsafe {
             let mut version = PWSTR::null();
@@ -317,6 +498,13 @@ impl OffscreenWebView {
             })?;
             controller.SetBounds(RECT { left: 0, top: 0, right: width as i32, bottom: height as i32 })?;
             controller.SetIsVisible(true)?;
+            // A drag inside the page (its sliders, its player) mustn't become one of the desktop's drops: WebView2
+            // would then run OLE's own modal loop on this thread, which pumps messages here and only ends with the
+            // drag — the input that would end it is sent by this very thread (PL 2026-10-27: QQ Music's volume
+            // slider froze the host and blanked the truck's screen). Nothing here takes a drop.
+            if let Ok(controller4) = controller.cast::<ICoreWebView2Controller4>() {
+                let _ = controller4.SetAllowExternalDrop(false);
+            }
         }
         // SAFETY: the controller was just created and isn't closed.
         let webview = unsafe { controller.CoreWebView2()? };
@@ -421,10 +609,128 @@ impl OffscreenWebView {
         unsafe { self.webview.add_ProcessFailed(&failed, &mut token) }
     }
 
+    /// Calls `changed` with the page's own `<title>` whenever it changes (WebView2's `DocumentTitleChanged`):
+    /// no script of WestPlay's in the page, and nothing of its content.
+    pub fn watch_title(&self, changed: impl Fn(String) + 'static) -> windows::core::Result<()> {
+        let handler = DocumentTitleChangedEventHandler::create(Box::new(move |webview, _args| {
+            let Some(webview) = webview else { return Ok(()) };
+            let mut title = PWSTR::null();
+            // SAFETY: `webview` is the event's, alive through the callback; WebView2 writes a CoTaskMem string
+            // into `title`, freed by `CoTaskMemPWSTR`.
+            let title = unsafe {
+                webview.DocumentTitle(&mut title)?;
+                CoTaskMemPWSTR::from(title).to_string()
+            };
+            changed(title);
+            Ok(())
+        }));
+        let mut token = 0;
+        // SAFETY: the handler and the token are locals for the call; WebView2 keeps its own reference to the
+        // handler.
+        unsafe { self.webview.add_DocumentTitleChanged(&handler, &mut token) }
+    }
+
+    /// Opens the page's new windows (a link with `target="_blank"`, a sign-in popup) in the WebView itself: a
+    /// window of the page's own would have nowhere to show.
+    pub fn new_windows_here(&self) -> windows::core::Result<()> {
+        let handler = NewWindowRequestedEventHandler::create(Box::new(|webview, args| {
+            let (Some(webview), Some(args)) = (webview, args) else { return Ok(()) };
+            let mut uri = PWSTR::null();
+            // SAFETY: `args` is the event's, alive through the callback; WebView2 writes a CoTaskMem string into
+            // `uri`, freed by `CoTaskMemPWSTR`.
+            let uri = unsafe {
+                args.Uri(&mut uri)?;
+                args.SetHandled(true)?;
+                CoTaskMemPWSTR::from(uri).to_string()
+            };
+            // That address (no page of its own: this one, at it). Anything else (a `javascript:` link, a file)
+            // is dropped.
+            crate::log!("webapp: new window asked for: {uri}");
+            if uri.starts_with("https://") || uri.starts_with("http://") {
+                // SAFETY: the WebView is the event's, alive through the callback; the address lives through the
+                // call.
+                unsafe { webview.Navigate(&HSTRING::from(uri))? };
+            }
+            Ok(())
+        }));
+        let mut token = 0;
+        // SAFETY: the handler and the token are locals for the call; WebView2 keeps its own reference to it.
+        unsafe { self.webview.add_NewWindowRequested(&handler, &mut token) }
+    }
+
+    /// Logs each address the page goes to: what a site's own page does with a click (no way to see it from
+    /// outside otherwise, a click that seems to do nothing being either no navigation at all or one that
+    /// went somewhere else).
+    pub fn watch_navigation(&self) -> windows::core::Result<()> {
+        let handler = NavigationStartingEventHandler::create(Box::new(|_, args| {
+            let Some(args) = args else { return Ok(()) };
+            let mut uri = PWSTR::null();
+            // SAFETY: `args` is the event's, alive through the callback; WebView2 writes a CoTaskMem string
+            // into `uri`, freed by `CoTaskMemPWSTR`.
+            let uri = unsafe {
+                args.Uri(&mut uri)?;
+                CoTaskMemPWSTR::from(uri).to_string()
+            };
+            crate::log!("webapp: page going to: {uri}");
+            Ok(())
+        }));
+        let mut token = 0;
+        // SAFETY: the handler and the token are locals for the call; WebView2 keeps its own reference to it.
+        unsafe { self.webview.add_NavigationStarting(&handler, &mut token) }
+    }
+
+    /// The browser the page takes this for: `agent` as its User-Agent (WebView2's own says "Edg", which some
+    /// sites serve a lesser page for).
+    pub fn set_user_agent(&self, agent: &str) -> windows::core::Result<()> {
+        // SAFETY: the WebView and its settings are alive as long as `self`; the string lives through the call.
+        unsafe { self.webview.Settings()?.cast::<ICoreWebView2Settings2>()?.SetUserAgent(&HSTRING::from(agent)) }
+    }
+
+    /// The page's previous address in its history.
+    pub fn back(&self) -> windows::core::Result<()> {
+        // SAFETY: the WebView is alive as long as `self`.
+        unsafe { self.webview.GoBack() }
+    }
+
+    /// Whether the page has a previous address in its history.
+    pub fn can_go_back(&self) -> bool {
+        let mut can = windows::core::BOOL::default();
+        // SAFETY: a plain value the call writes.
+        unsafe { self.webview.CanGoBack(&mut can) }.is_ok() && can.as_bool()
+    }
+
+    /// Gives the page the keyboard's focus (the player clicked on it).
+    pub fn focus(&self) -> windows::core::Result<()> {
+        // SAFETY: the controller is alive as long as `self`; the reason is a plain value.
+        unsafe { self.controller.MoveFocus(COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC) }
+    }
+
+    /// The page's pixels against the frame's: below 1.0 the page lays out larger than the view it shows in
+    /// (more of it visible, its words smaller), which is how a page laid out for a desktop is shown whole.
+    pub fn set_zoom(&self, factor: f64) -> windows::core::Result<()> {
+        // SAFETY: the controller is alive as long as `self`; a plain value.
+        unsafe { self.controller.SetZoomFactor(factor) }
+    }
+
     /// Loads the page again (after its process failed).
     pub fn reload(&self) -> windows::core::Result<()> {
         // SAFETY: the WebView is alive as long as `self`.
         unsafe { self.webview.Reload() }
+    }
+
+    /// Runs a DevTools protocol method in this page, without waiting for its answer
+    /// (`ICoreWebView2::CallDevToolsProtocolMethod`; nothing is read back).
+    ///
+    /// The cabin's own input method commits what the player picked through it (`Input.insertText`): that is the
+    /// browser's **own input pipeline**, which is the only way into a field a page keeps to itself — Bilibili's
+    /// own components, a field React draws again — and it is what a real input method's commit is (2026-10-31).
+    pub fn devtools(&self, method: &str, parameters: &str) -> windows::core::Result<()> {
+        use webview2_com::CallDevToolsProtocolMethodCompletedHandler;
+        let handler = CallDevToolsProtocolMethodCompletedHandler::create(Box::new(|_error, _json| Ok(())));
+        // SAFETY: the strings are locals for the call; WebView2 keeps its own reference to the handler.
+        unsafe {
+            self.webview.CallDevToolsProtocolMethod(&HSTRING::from(method), &HSTRING::from(parameters), &handler)
+        }
     }
 
     /// Where on the stage the WebView shows, and its size: the page lays itself out at that size.
@@ -705,193 +1011,6 @@ impl OffscreenWebView {
         // SAFETY: the composition controller is alive as long as `self`; plain values only.
         unsafe { self.composition.SendMouseInput(kind, keys, data, point) }
     }
-
-    /// The WebView itself, for what only a browser's tab needs (safari.rs: its navigation's events).
-    pub fn core(&self) -> &ICoreWebView2 {
-        &self.webview
-    }
-
-    /// The colour shown where the page draws nothing (WestPlay's own pages: none, the game's screen through;
-    /// a web page: white, as a browser's).
-    pub fn set_background(&self, red: u8, green: u8, blue: u8) -> windows::core::Result<()> {
-        // SAFETY: the controller is alive as long as `self`; a plain value.
-        unsafe {
-            self.controller.cast::<ICoreWebView2Controller2>()?.SetDefaultBackgroundColor(COREWEBVIEW2_COLOR {
-                A: 255,
-                R: red,
-                G: green,
-                B: blue,
-            })
-        }
-    }
-
-    /// The WebView's picture cut to its rectangle (`width` x `height`) with its bottom corners rounded by `radius` (0:
-    /// not cut): a web page shown where the cab has round corners (Safari's, at the app's foot) shows nothing past them
-    /// (owner 2026-11-08: a thin strip of the page showed round the corners, the cab's own there see-through).
-    pub fn round_bottom_corners(&self, width: f32, height: f32, radius: f32) -> windows::core::Result<()> {
-        if radius <= 0.0 {
-            return self.root.SetClip(None::<&windows::UI::Composition::CompositionClip>);
-        }
-        let compositor = self.root.Compositor()?;
-        let shape = compositor.CreateRoundedRectangleGeometry()?;
-        // Its top corners above the picture (not shown): only the bottom ones round it.
-        shape.SetOffset(Vector2 { X: 0.0, Y: -radius })?;
-        shape.SetSize(Vector2 { X: width, Y: height + radius })?;
-        shape.SetCornerRadius(Vector2 { X: radius, Y: radius })?;
-        let clip = compositor.CreateGeometricClipWithGeometry(&shape)?;
-        self.root.SetClip(&clip)
-    }
-
-    /// The cookies this WebView's profile sends to `uri`, read (waiting for WebView2's answer).
-    pub fn cookies(&self, uri: &str) -> Result<Vec<Cookie>, Error> {
-        use webview2_com::GetCookiesCompletedHandler;
-        use webview2_com::Microsoft::Web::WebView2::Win32::{COREWEBVIEW2_COOKIE_SAME_SITE_KIND, ICoreWebView2_2};
-        // SAFETY: the WebView's own cookie manager, alive while it is.
-        let manager = unsafe { self.webview.cast::<ICoreWebView2_2>()?.CookieManager()? };
-        let uri = HSTRING::from(uri);
-        let read: Rc<RefCell<Vec<Cookie>>> = Rc::default();
-        let into = read.clone();
-        GetCookiesCompletedHandler::wait_for_async_operation(
-            // SAFETY: `uri` lives through the call; the handler is kept alive until WebView2 calls it.
-            Box::new(move |handler| unsafe {
-                manager.GetCookies(&uri, &handler).map_err(webview2_com::Error::WindowsError)
-            }),
-            Box::new(move |error, list| {
-                error?;
-                let Some(list) = list else { return Ok(()) };
-                let text = |read: &dyn Fn(&mut PWSTR) -> windows::core::Result<()>| {
-                    let mut value = PWSTR::null();
-                    if read(&mut value).is_err() || value.is_null() {
-                        return String::new();
-                    }
-                    CoTaskMemPWSTR::from(value).to_string()
-                };
-                let flag = |read: &dyn Fn(&mut windows::core::BOOL) -> windows::core::Result<()>| {
-                    let mut value = windows::core::BOOL::default();
-                    read(&mut value).is_ok() && value.as_bool()
-                };
-                // SAFETY: the list WebView2 handed over, read within its count; each cookie's strings CoTaskMem
-                // (freed by `CoTaskMemPWSTR`), its other values plain.
-                unsafe {
-                    let mut count = 0;
-                    list.Count(&mut count)?;
-                    for at in 0..count {
-                        let cookie = list.GetValueAtIndex(at)?;
-                        let mut expires = 0.0;
-                        let _ = cookie.Expires(&mut expires);
-                        let mut same_site = COREWEBVIEW2_COOKIE_SAME_SITE_KIND::default();
-                        let _ = cookie.SameSite(&mut same_site);
-                        into.borrow_mut().push(Cookie {
-                            name: text(&|value| cookie.Name(value)),
-                            value: text(&|value| cookie.Value(value)),
-                            domain: text(&|value| cookie.Domain(value)),
-                            path: text(&|value| cookie.Path(value)),
-                            expires,
-                            http_only: flag(&|value| cookie.IsHttpOnly(value)),
-                            secure: flag(&|value| cookie.IsSecure(value)),
-                            session: flag(&|value| cookie.IsSession(value)),
-                            same_site: same_site.0,
-                        });
-                    }
-                }
-                Ok(())
-            }),
-        )?;
-        Ok(read.take())
-    }
-
-    /// Adds `cookies` to this WebView's profile (or updates them: the same name, domain and path).
-    pub fn add_cookies(&self, cookies: &[Cookie]) -> windows::core::Result<()> {
-        use webview2_com::Microsoft::Web::WebView2::Win32::{COREWEBVIEW2_COOKIE_SAME_SITE_KIND, ICoreWebView2_2};
-        // SAFETY: the WebView's own cookie manager, alive while it is; the strings live through each call.
-        unsafe {
-            let manager = self.webview.cast::<ICoreWebView2_2>()?.CookieManager()?;
-            for cookie in cookies {
-                let made = manager.CreateCookie(
-                    &HSTRING::from(&cookie.name),
-                    &HSTRING::from(&cookie.value),
-                    &HSTRING::from(&cookie.domain),
-                    &HSTRING::from(&cookie.path),
-                )?;
-                if !cookie.session {
-                    made.SetExpires(cookie.expires)?;
-                }
-                made.SetIsHttpOnly(cookie.http_only)?;
-                made.SetIsSecure(cookie.secure)?;
-                made.SetSameSite(COREWEBVIEW2_COOKIE_SAME_SITE_KIND(cookie.same_site))?;
-                manager.AddOrUpdateCookie(&made)?;
-            }
-        }
-        Ok(())
-    }
-
-    /// The scale the page is drawn at, as a monitor's: its CSS pixels this many of the WebView's, the page's own
-    /// pixel ratio (`devicePixelRatio`), its bounds still the WebView's pixels.
-    pub fn set_rasterization_scale(&self, scale: f64) -> windows::core::Result<()> {
-        use webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2Controller3;
-        // SAFETY: the controller is alive as long as `self`; a plain value.
-        unsafe { self.controller.cast::<ICoreWebView2Controller3>()?.SetRasterizationScale(scale) }
-    }
-
-    /// The page's zoom: its CSS pixels this many of the WebView's (a web page as large as the cab's own text).
-    pub fn set_zoom(&self, zoom: f64) -> windows::core::Result<()> {
-        // SAFETY: the controller is alive as long as `self`; a plain value.
-        unsafe { self.controller.SetZoomFactor(zoom) }
-    }
-
-    /// Runs a Chrome DevTools Protocol method on the page (`params` its JSON), without waiting for its answer.
-    pub fn devtools(&self, method: &str, params: &str) -> windows::core::Result<()> {
-        use webview2_com::CallDevToolsProtocolMethodCompletedHandler;
-        let handler = CallDevToolsProtocolMethodCompletedHandler::create(Box::new(|_error, _json| Ok(())));
-        // SAFETY: the strings are locals for the call; WebView2 keeps its own reference to the handler.
-        unsafe { self.webview.CallDevToolsProtocolMethod(&HSTRING::from(method), &HSTRING::from(params), &handler) }
-    }
-
-    /// A DevTools protocol method called, waiting for its answer (JSON).
-    pub fn devtools_answer(&self, method: &str, params: &str) -> Result<String, Error> {
-        use webview2_com::CallDevToolsProtocolMethodCompletedHandler;
-        let webview = self.webview.clone();
-        let (method, params) = (HSTRING::from(method), HSTRING::from(params));
-        let result = std::rc::Rc::new(std::cell::RefCell::new(String::new()));
-        let written = result.clone();
-        CallDevToolsProtocolMethodCompletedHandler::wait_for_async_operation(
-            // SAFETY: the strings live through the call; the handler is kept alive until WebView2 calls it.
-            Box::new(move |handler| unsafe {
-                webview
-                    .CallDevToolsProtocolMethod(&method, &params, &handler)
-                    .map_err(webview2_com::Error::WindowsError)
-            }),
-            Box::new(move |error, json| {
-                *written.borrow_mut() = json;
-                error
-            }),
-        )?;
-        Ok(result.take())
-    }
-
-    /// The page's picture as WebView2 draws it, written to `path` as a PNG, without waiting: `done` once it's
-    /// written (`true`) or failed.
-    pub fn capture_png_later(&self, path: &Path, done: impl FnOnce(bool) + 'static) -> Result<(), Error> {
-        use webview2_com::CapturePreviewCompletedHandler;
-        use webview2_com::Microsoft::Web::WebView2::Win32::COREWEBVIEW2_CAPTURE_PREVIEW_IMAGE_FORMAT_PNG;
-        use windows::Win32::System::Com::{STGM_CREATE, STGM_WRITE};
-        use windows::Win32::UI::Shell::SHCreateStreamOnFileEx;
-        // SAFETY: the path lives through the call; the stream it gives is ours.
-        let stream = unsafe {
-            SHCreateStreamOnFileEx(&HSTRING::from(path.as_os_str()), (STGM_CREATE | STGM_WRITE).0, 0, true, None)?
-        };
-        let mut done = Some(done);
-        let handler = CapturePreviewCompletedHandler::create(Box::new(move |error| {
-            if let Some(done) = done.take() {
-                done(error.is_ok());
-            }
-            Ok(())
-        }));
-        // SAFETY: the stream is a local for the call (WebView2 keeps its own reference while it writes, letting go
-        // as it's done); WebView2 keeps its own reference to the handler.
-        unsafe { self.webview.CapturePreview(COREWEBVIEW2_CAPTURE_PREVIEW_IMAGE_FORMAT_PNG, &stream, &handler)? };
-        Ok(())
-    }
 }
 
 impl Drop for OffscreenWebView {
@@ -971,6 +1090,39 @@ fn process_failure(kind: COREWEBVIEW2_PROCESS_FAILED_KIND) -> String {
     name.to_owned()
 }
 
+/// A WebView2 environment on the profile at `user_data`: the same one a page of that profile runs on (a
+/// sign-in window shares the app's cookies: weblogin.rs).
+pub fn environment_for(user_data: &Path) -> Result<ICoreWebView2Environment, Error> {
+    create_environment(user_data, true)
+}
+
+/// The variable naming the folder of unpacked extensions every site's WebView2 loads (`create_environment`).
+/// Unset: only WestPlay's own folder, beside the app, is looked in.
+pub const EXTENSIONS_VARIABLE: &str = "WESTPLAY_EXTENSIONS";
+
+/// Every folder of unpacked extensions to load: one extension a folder (`<extension>/manifest.json`), as Chromium
+/// takes them. Two places are looked in, each optional: `extensions` beside the app's own executable (shipped, or
+/// put there by a player), and the folder [`EXTENSIONS_VARIABLE`] names (a player's own).
+fn extension_folders() -> Vec<PathBuf> {
+    let mut roots: Vec<PathBuf> = std::env::var_os(EXTENSIONS_VARIABLE).map(PathBuf::from).into_iter().collect();
+    if let Ok(exe) = std::env::current_exe()
+        && let Some(folder) = exe.parent()
+    {
+        roots.push(folder.join("extensions"));
+    }
+    let mut folders = Vec::new();
+    for root in roots {
+        let Ok(entries) = std::fs::read_dir(&root) else { continue };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() && path.join("manifest.json").is_file() {
+                folders.push(path);
+            }
+        }
+    }
+    folders
+}
+
 /// A WebView2 environment on the profile `user_data` for browsing the web (Safari): as the players' own, but a
 /// page plays sound by itself only as a browser lets it (once the player has clicked in it), not as it loads.
 pub fn browsing_environment(user_data: &Path) -> Result<ICoreWebView2Environment, Error> {
@@ -1002,6 +1154,17 @@ fn create_environment(user_data: &Path, autoplay: bool) -> Result<ICoreWebView2E
     // The GPU it draws on (graphics.rs).
     if let Some(gpu) = GPU_ARGUMENT.lock().unwrap_or_else(|e| e.into_inner()).as_deref() {
         arguments = format!("{arguments} {gpu}");
+    }
+    // The player's own extensions (WESTPLAY_EXTENSIONS, a folder of unpacked ones): QQ Music's web player lists
+    // only ten tracks of a playlist, an album or the liked songs unless the page asks for more, and the extension
+    // a player installs for it does exactly that — it rewrites the request's count on its own page
+    // (owner 2026-11-10). Given to every site's WebView2 rather than QQ Music's alone: an extension whose match
+    // patterns don't name a page does nothing there, and one env var keeps the host unaware of what's installed.
+    for folder in extension_folders() {
+        let folder = folder.display();
+        arguments = format!(
+            "{arguments} --load-extension=\"{folder}\" --disable-extensions-except=\"{folder}\""
+        );
     }
     // SAFETY: the options object is ours and alive; the arguments are a plain string.
     unsafe {

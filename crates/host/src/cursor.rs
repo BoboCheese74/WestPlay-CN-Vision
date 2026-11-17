@@ -137,6 +137,9 @@ pub struct Mouse {
     pub pressed: bool,
     /// It moved, clicked or scrolled this turn.
     pub used: bool,
+    /// Wheel counts taken for the site's page's own zoom (the right Ctrl held over it, `pointer::Pointer::update`):
+    /// positive away from the player, larger. 0: none this turn, and the wheel went to the page to scroll.
+    pub zoom: i32,
 }
 
 pub struct Cursor {
@@ -458,7 +461,7 @@ mod tests {
     use super::*;
 
     fn mouse(x: f32, y: f32, pressed: bool, used: bool) -> Mouse {
-        Mouse { active: true, x, y, pressed, used }
+        Mouse { active: true, x, y, pressed, used, zoom: 0 }
     }
 
     #[test]

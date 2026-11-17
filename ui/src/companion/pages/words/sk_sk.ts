@@ -75,6 +75,9 @@ export const words: CompanionWords = {
     coachNote:
       'Reproduktory pre cestujúcich v tomto autobuse: {n}, všetky naraz. Na slabom procesore sa hra môže trhať.',
     coachNoteAny: 'V autobuse hrajú reproduktory pre cestujúcich všetky naraz. Na slabom procesore sa hra môže trhať.',
+    display: 'Truck Screen',
+    displayFirst: 'WestPlay tablet',
+    displayFirstDetail: 'WestPlay fills the tablet first, even in a truck whose own screen shows it.',
     elevated: {
       title: 'Hra beží ako správca',
       text: 'WestPlay potom nevidí trasu, navigáciu ani počasie. Spustite hru normálne, nie ako správca.',

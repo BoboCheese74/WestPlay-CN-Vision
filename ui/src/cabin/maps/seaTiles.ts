@@ -97,7 +97,19 @@ export async function seaTile(url: string, signal?: AbortSignal): Promise<ArrayB
 let added = false
 
 /** Lets MapLibre (`library`) fetch tiles through this protocol: once, before the first map asks for any. */
-export function addSeaProtocol(library: typeof maplibregl): void {
+/**
+ * [`addSeaProtocol`] as a call a bundler keeps: the scheme's name is built here (so the string is in the
+ * same module as the call) and the module's state read back, its result used.
+ */
+export function seaTilesProtocol(library: typeof maplibregl): void {
+  addSeaProtocol(library, PROTOCOL)
+  if (!added) throw new Error(`the map's ${PROTOCOL} protocol was not registered`)
+}
+
+export function addSeaProtocol(library: typeof maplibregl, kept?: unknown): void {
+  // `kept`: a value the caller computes, so a bundler can't take the call for dead code (its result
+  // otherwise unused: one build dropped it whole, and the scheme was never registered).
+  void kept
   if (added) return
   added = true
   library.addProtocol(PROTOCOL, async (params, abort) => ({ data: await seaTile(params.url, abort.signal) }))

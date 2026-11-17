@@ -259,6 +259,45 @@
   transform: translateX(26px);
 }
 
+/* Appearance › Screen Refresh Rate: the label with two pill buttons in a grey track beside it (60 Hz or
+   30 Hz), the one chosen on a card-coloured pill, as iOS's segmented controls are. */
+.refresh-rate-row {
+  min-height: 70px;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 0 22px;
+  color: var(--apple-label);
+  font-size: calc(24px * var(--text-scale, 1));
+}
+
+.refresh-rate-choices {
+  flex: none;
+  display: flex;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 13px;
+  background: var(--apple-fill);
+}
+
+.shell .refresh-rate-choice {
+  min-width: 76px;
+  padding: 7px 12px;
+  border-radius: 10px;
+  font-size: calc(20px * var(--text-scale, 1));
+  font-weight: 600;
+  color: var(--apple-label);
+  background: transparent;
+  transition: background 200ms var(--motion-ease);
+}
+
+.shell .refresh-rate-choice.on {
+  background: var(--apple-card);
+  box-shadow:
+    0 1px 2px rgb(0 0 0 / 0.12),
+    0 3px 8px rgb(0 0 0 / 0.18);
+}
+
 /* Appearance: Light and Dark side by side, each a picture of the screen, its name and a round tick. */
 .appearance-choices {
   display: flex;
@@ -652,4 +691,16 @@
 .text-size-track.dragging .text-size-thumb {
   transform: translate(-50%, -50%) scale(1.08);
   transition: transform 150ms var(--motion-ease);
+}
+
+/* The Dashboard's photo widget's own choice: the wallpaper on screen, in the gallery's shape (a note where a
+   picture would be). */
+.wallpaper-thumbnail-empty.photo-follow {
+  display: grid;
+  place-items: center;
+  padding: 12px;
+  font-size: calc(17px * var(--text-scale, 1));
+  font-weight: 600;
+  color: var(--apple-label-secondary);
+  text-align: center;
 }

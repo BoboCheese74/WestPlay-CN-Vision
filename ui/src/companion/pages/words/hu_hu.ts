@@ -75,6 +75,9 @@ export const words: CompanionWords = {
     coachNote:
       'Az utasok hangszórói ebben a buszban: {n}, mind egyszerre. Gyenge processzoron a játék akadozhat tőlük.',
     coachNoteAny: 'Buszban az utasok hangszórói mind egyszerre szólnak. Gyenge processzoron a játék akadozhat tőlük.',
+    display: 'Truck Screen',
+    displayFirst: 'WestPlay tablet',
+    displayFirstDetail: 'WestPlay fills the tablet first, even in a truck whose own screen shows it.',
     elevated: {
       title: 'A játék rendszergazdaként fut',
       text: 'Így a WestPlay nem látja az útvonalat, a navigációt és az időjárást. Indítsd a játékot a szokásos módon, ne rendszergazdaként.',

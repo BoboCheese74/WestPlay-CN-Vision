@@ -234,3 +234,55 @@ game's model format and turned landscape (`tools/dev/tablet_model.py`); its grou
 picture left out; its parts coloured from one small texture; WestPlay's screen shown on its glass, and a stand
 and a hanging bar added (`crates/setup/src/tablet.rs`). The tablet's model descriptor is laid out as Kedi739's
 tablet mod's was, used with his permission.
+
+## The Chinese input method's table
+
+The cabin's own Chinese input method (`ui/src/cabin/keyboard/pinyin.ts`) composes pinyin and offers
+candidates from `ui/public/chinese/pinyin.json`, which `tools/chinese/build_pinyin_table.py` generates from:
+
+- **pinyin-data** (<https://github.com/mozillazg/pinyin-data>), MIT — every character's readings.
+- **phrase-pinyin-data** (<https://github.com/mozillazg/phrase-pinyin-data>), MIT — a phrase's own pinyin.
+- **rime-essay** (<https://github.com/rime/rime-essay>), LGPL-3.0 — the vocabulary and its frequencies: what a
+  candidate's place in the list comes from. Read as simplified.
+- **OpenCC**'s character dictionary (<https://github.com/BYVoid/OpenCC>), Apache-2.0 — traditional to
+  simplified (`漢` → `汉`), which turns rime-essay's words into the ones the player types.
+
+WestPlay is GPL-3.0-or-later and these are used under licences it is compatible with; the generated table is a
+derived work of them. The two MIT licences:
+
+```
+MIT License
+
+Copyright (c) 2016 mozillazg
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated
+documentation files (the "Software"), to deal in the Software without restriction, including without limitation
+the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software,
+and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial portions
+of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED
+TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
+THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF
+CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+DEALINGS IN THE SOFTWARE.
+```
+
+Rime's own notice for rime-essay (LGPL-3.0, <https://www.gnu.org/licenses/lgpl-3.0.txt>):
+
+```
+Copyright (C) 2010-2016 Rime Developers <rime-devel@googlegroups.com>
+
+This library is free software; you can redistribute it and/or modify it under the terms of the GNU Lesser
+General Public License as published by the Free Software Foundation; either version 3 of the License, or (at
+your option) any later version.
+
+This library is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the
+implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU Lesser General Public
+License for more details.
+```
+
+OpenCC's dictionaries are licensed under the Apache License, Version 2.0
+(<https://www.apache.org/licenses/LICENSE-2.0>), whose text is reproduced in `THIRD_PARTY_LICENSES.md`.

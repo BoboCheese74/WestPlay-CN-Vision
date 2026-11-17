@@ -44,6 +44,18 @@ const SCREEN_DIR: &str = "material/ui/westplay";
 const SCREEN_LAYER: u32 = 100;
 /// The "screen on" group's id in the GPS scripts.
 const SCREEN_ON_GROUP: &str = "100";
+
+/// The pages of a layout's GPS script WestPlay draws on: the screen's own page, always, and the
+/// other pages the same display draws. Only the MAN TGX 2020's display has a second one — its front
+/// blind-spot camera (id 200), which kept the game's own picture while WestPlay was on the first
+/// alone (owner 2026-11-13).
+const ONE_PAGE: &[&str] = &[SCREEN_ON_GROUP];
+const MAN_TGX_PAGES: &[&str] = &[SCREEN_ON_GROUP, "200"];
+
+/// The pages of `layout`'s script WestPlay goes on.
+fn screen_pages(layout: &str) -> &'static [&'static str] {
+    if layout == "man-tgx-2020" { MAN_TGX_PAGES } else { ONE_PAGE }
+}
 /// The parking camera's group's id in the GPS scripts (the Coaches DLC's coaches: the camera behind the bus, shown
 /// as it reverses or as the player turns it on).
 const PARKING_CAMERA_GROUP: &str = "910";
@@ -104,6 +116,11 @@ const SHOWN_PARTS: &[(&str, ShownPart)] = &[
     ("iveco-sway", ShownPart { left: 0.0025, right: 0.9975, top: 0.0, bottom: 1.0 }),
     ("renault-t-2024", ShownPart { left: 0.005, right: 0.995, top: 0.005, bottom: 0.995 }),
     ("volvo-fh", ShownPart { left: 0.0054, right: 0.9946, top: 0.0055, bottom: 0.9945 }),
+    // MAN TGX 2020: its script draws a 1440 x 540 window (the others' 1280 x 720), and its map page
+    // fills the left of it only — the MAN lion's mark sits to the right. The page is laid out at
+    // 1280 x 720, so its width is 540 x 16:9 = 960 units, 66.7% of the window: past that the frame
+    // is stretched wide (5.6%, what read as squashed; owner 2026-11-13).
+    ("man-tgx-2020", ShownPart { left: 0.0, right: 0.667, top: 0.0, bottom: 1.0 }),
 ];
 
 /// A mod vehicle's own screen WestPlay draws on (owner 2026-10-24, Oyuncuyusbis' coaches: "directly in their
@@ -239,7 +256,7 @@ fn mod_screen_files(
         String::from_utf8(text.into_owned()).map_err(|_| format!("{path}: not UTF-8 text"))
     };
     let mut files =
-        vec![(script.to_owned(), patch_gps_script(&read(screen.source)?, texture, Some(&screen.shown), rows)?.into_bytes())];
+        vec![(script.to_owned(), patch_gps_script(&read(screen.source)?, texture, Some(&screen.shown), rows, screen_pages(screen.layout))?.into_bytes())];
     let dir = format!("def/vehicle/truck/{}/interior", screen.truck);
     let names = mods.list(&dir).map_err(|error| error.to_string())?;
     for name in names.iter().filter(|name| name.ends_with(".sii")) {
@@ -417,7 +434,7 @@ fn own_screen_files(
         let bytes = game.read(path).map_err(|error| error.to_string())?.ok_or(format!("no {path}"))?;
         String::from_utf8(bytes).map_err(|_| format!("{path}: not UTF-8 text"))
     };
-    let mut files = vec![(script.to_owned(), patch_gps_script(&read(own.source)?, texture, None, rows)?.into_bytes())];
+    let mut files = vec![(script.to_owned(), patch_gps_script(&read(own.source)?, texture, None, rows, screen_pages(own.layout))?.into_bytes())];
     let replace_once = |text: &str, from: &str, to: &str, path: &str| -> Result<String, String> {
         match text.matches(from).count() {
             1 => Ok(text.replacen(from, to, 1)),
@@ -493,6 +510,8 @@ pub fn build(
     let mut files: Vec<(String, Vec<u8>)> = vec![
         ("manifest.sii".into(), manifest().into_bytes()),
         ("description.txt".into(), b"WestPlay screens. Requires the WestPlay app and plugin.\n".to_vec()),
+        // Which layout of the mod this is: an older one's is made again (see `LAYOUT`/`layout_current`).
+        (LAYOUT_FILE.into(), format!("{LAYOUT}\n").into_bytes()),
     ];
     let mut built = Built::default();
     for (index, layout) in screen_layouts().iter().enumerate() {
@@ -566,7 +585,7 @@ pub fn build(
             let shown = SHOWN_PARTS.iter().find(|(id, _)| *id == layout.id).map(|(_, part)| part);
             let patched = match window {
                 Some(window) => patch_window_script(&text, &texture, &window.shown, rows),
-                None => patch_gps_script(&text, &texture, shown, rows),
+                None => patch_gps_script(&text, &texture, shown, rows, screen_pages(layout.id)),
             }
             .map_err(|problem| BuildError::Script { script, problem })?;
             files.push((script.to_owned(), patched.into_bytes()));
@@ -627,6 +646,35 @@ pub fn build(
 /// first, then moved over it, so the plugin never finds half a file.
 /// A step that failed names itself and its path (`writing C:\…\WestPlay\westplay.scs.partial: …`), so a
 /// player's report says which.
+/// [`install`] with `extra` files written beside the mod's own (the MAN TGX 2020's script and the
+/// interior that asks for it, under WestPlay's own names).
+pub fn install_with(
+    bytes: &[u8],
+    extra: &[(String, Vec<u8>)],
+    mod_dir: &Path,
+    kind: Kind,
+) -> std::io::Result<PathBuf> {
+    // The mod as built, its files read back and the extras added, then packed again.
+    let mut all: Vec<(String, Vec<u8>)> = Vec::new();
+    let reader = std::io::Cursor::new(bytes);
+    if let Ok(mut archive) = zip::ZipArchive::new(reader) {
+        for index in 0..archive.len() {
+            if let Ok(mut file) = archive.by_index(index) {
+                let name = file.name().to_owned();
+                let mut data = Vec::new();
+                use std::io::Read as _;
+                let _ = file.read_to_end(&mut data);
+                all.push((name, data));
+            }
+        }
+    }
+    all.extend(extra.iter().cloned());
+    all.sort_by(|a, b| a.0.cmp(&b.0));
+    all.dedup_by(|a, b| a.0 == b.0 && a.1 == b.1);
+    let packed = zip(&all);
+    install(&packed, mod_dir, kind)
+}
+
 pub fn install(bytes: &[u8], mod_dir: &Path, kind: Kind) -> std::io::Result<PathBuf> {
     let step = |what: &str, path: &Path| {
         let what = format!("{what} {}", path.display());
@@ -641,6 +689,24 @@ pub fn install(bytes: &[u8], mod_dir: &Path, kind: Kind) -> std::io::Result<Path
 }
 
 /// A layout's screen texture's name: `screen_daf_2021`.
+/// The layout of the mod this WestPlay builds, bumped whenever a mod made by an earlier WestPlay
+/// wouldn't fit this one.
+pub const LAYOUT: u32 = 22;
+
+/// What [`build`] writes into the mod to say which layout made it ([`LAYOUT`]).
+const LAYOUT_FILE: &str = "westplay/layout.txt";
+
+/// Whether the mod at `built` was made by this WestPlay's layout: one that doesn't say so at all (or
+/// says an older number) is made again.
+pub fn layout_current(built: &Path) -> bool {
+    let Ok(archive) = Archive::open(built) else { return false };
+    let ours = GameFiles::new(vec![Mount::Archive(archive)]);
+    ours.read(LAYOUT_FILE)
+        .ok()
+        .flatten()
+        .is_some_and(|text| String::from_utf8_lossy(&text).trim() == LAYOUT.to_string())
+}
+
 pub fn texture_name(layout: &ScreenLayout) -> String {
     format!("screen_{}", layout.id.replace('-', "_"))
 }
@@ -744,16 +810,53 @@ fn field<'a>(lines: &[&'a str], block: &Block, name: &str) -> Option<&'a str> {
 /// them (the layout's mark, repeating the frame's bottom row) below it, off the screen; stretched over the part
 /// whole, they squashed the frame up to 1.6% and smeared its bottom row (its black round corners) along the
 /// screen's bottom edge (2026-11-03). The rest of the script stays as it is.
-pub fn patch_gps_script(text: &str, texture: &str, shown: Option<&ShownPart>, rows: u32) -> Result<String, String> {
+/// Adds the WestPlay screen image `texture` to the GPS script's "screen on" groups: a child of each,
+/// over the whole of it or over the part the display shows (`shown`). The pages a layout's display
+/// draws are `pages` (the first is its own; a video display's second is its front camera). The
+/// parking camera's mark is kept over the image, as the game draws it.
+pub fn patch_gps_script(
+    text: &str,
+    texture: &str,
+    shown: Option<&ShownPart>,
+    rows: u32,
+    pages: &[&str],
+) -> Result<String, String> {
     let lifted = lift_parking_camera(text)?;
     let text = lifted.as_str();
+    let mut patched = text.to_owned();
+    let mut added = 0;
+    for (index, id) in pages.iter().enumerate() {
+        match add_screen_to_group(&patched, texture, shown, rows, id, index) {
+            Ok(next) => {
+                patched = next;
+                added += 1;
+            }
+            // Only the first is required: a display with no second page simply hasn't one.
+            Err(_) if index > 0 => {}
+            Err(problem) => return Err(problem),
+        }
+    }
+    if added == 0 {
+        return Err("no group with id 100".into());
+    }
+    Ok(patched)
+}
+
+fn add_screen_to_group(
+    text: &str,
+    texture: &str,
+    shown: Option<&ShownPart>,
+    rows: u32,
+    id: &str,
+    index: usize,
+) -> Result<String, String> {
     let newline = if text.contains("\r\n") { "\r\n" } else { "\n" };
     let lines: Vec<&str> = text.split(newline).collect();
     let blocks = blocks(&lines);
     let group = blocks
         .iter()
-        .find(|block| block.kind == "ui::group" && field(&lines, block, "id") == Some(SCREEN_ON_GROUP))
-        .ok_or("no group with id 100")?;
+        .find(|block| block.kind == "ui::group" && field(&lines, block, "id") == Some(id))
+        .ok_or_else(|| format!("no group with id {id}"))?;
     let count: usize =
         field(&lines, group, "my_children").unwrap_or("0").parse().map_err(|_| "my_children isn't a count")?;
     let coord = |name| field(&lines, group, name).ok_or_else(|| format!("the group has no {name}"));
@@ -768,7 +871,11 @@ pub fn patch_gps_script(text: &str, texture: &str, shown: Option<&ShownPart>, ro
     let bottom = top - (top - bottom) * f64::from(rows) / f64::from(SCREEN_HEIGHT);
     let at = |value: f64| format!("{}", value.round() as i64);
     let (left, right, top, bottom) = (at(l + (r - l) * part.left), at(l + (r - l) * part.right), at(top), at(bottom));
-    let element = "_nameless.westplay.screen";
+    let element = if index == 0 {
+        "_nameless.westplay.screen".to_owned()
+    } else {
+        format!("_nameless.westplay.screen{}", index + 1)
+    };
 
     let mut body = Vec::new();
     for line in &lines[group.start + 1..group.end] {
@@ -1148,7 +1255,7 @@ mod tests {
 
     #[test]
     fn adds_the_screen_on_top_of_the_screen_on_group() {
-        let patched = patch_gps_script(SCRIPT, "screen_generic", None, SCREEN_HEIGHT).unwrap();
+        let patched = patch_gps_script(SCRIPT, "screen_generic", None, SCREEN_HEIGHT, ONE_PAGE).unwrap();
         assert!(patched.contains(" my_children: 3\n my_children[0]: _nameless.3\n my_children[1]: _nameless.4\n my_children[2]: _nameless.westplay.screen\n"));
         assert!(patched.contains("ui::text : _nameless.westplay.screen {\n text: \"<img src=/material/ui/westplay/screen_generic.mat xscale=stretch yscale=stretch>\"\n coords_l: 0\n coords_r: 1279\n coords_t: 719\n coords_b: 0\n"));
         assert!(patched.contains(" layer: 100\n tab: -1\n pointer: -1\n my_parent: _nameless.2\n}\n\n}\n"));
@@ -1163,7 +1270,7 @@ mod tests {
 
     #[test]
     fn the_parking_camera_is_drawn_over_the_screen_and_the_screen_over_the_rest() {
-        let patched = patch_gps_script(CAMERA_SCRIPT, "screen_man_lions_24", None, SCREEN_HEIGHT).unwrap();
+        let patched = patch_gps_script(CAMERA_SCRIPT, "screen_man_lions_24", None, SCREEN_HEIGHT, ONE_PAGE).unwrap();
         let layer = |name: &str| {
             let block = patched.split(&format!(" : {name} {{")).nth(1).unwrap_or_else(|| panic!("{name}"));
             let line = block.lines().find(|line| line.trim().starts_with("layer:")).unwrap();
@@ -1187,7 +1294,7 @@ mod tests {
         assert!(mark.contains("<img src=/material/ui/westplay/parking_mark.mat"));
         assert!(mark.contains(" my_parent: _nameless.cam\n"));
         // No mark where there's no camera.
-        let plain = patch_gps_script(SCRIPT, "screen_generic", None, SCREEN_HEIGHT).unwrap();
+        let plain = patch_gps_script(SCRIPT, "screen_generic", None, SCREEN_HEIGHT, ONE_PAGE).unwrap();
         assert!(!plain.contains("westplay.parking"));
         // Lifting changes the camera's five layers and nothing else.
         let lifted = lift_parking_camera(CAMERA_SCRIPT).unwrap();
@@ -1214,7 +1321,7 @@ mod tests {
         // The 7" Scania's: the stock square's full width, rows 12.2%-73.5% from its top.
         let square = SCRIPT.replace("coords_r: 1279", "coords_r: 256").replace("coords_t: 719", "coords_t: 256");
         let shown = SHOWN_PARTS.iter().find(|(id, _)| *id == "generic").map(|(_, part)| part);
-        let patched = patch_gps_script(&square, "screen_generic", shown, SCREEN_HEIGHT).unwrap();
+        let patched = patch_gps_script(&square, "screen_generic", shown, SCREEN_HEIGHT, ONE_PAGE).unwrap();
         let placed = "screen_generic.mat xscale=stretch yscale=stretch>\"\n coords_l: 1\n coords_r: 255\n coords_t: 225\n coords_b: 68\n";
         assert!(patched.contains(placed), "{patched}");
         // The group itself keeps its coordinates.
@@ -1226,13 +1333,13 @@ mod tests {
         // The Volvo FH's: its texture 726 rows (its index 6), its display showing all but 0.54-0.55% of each edge.
         let script = SCRIPT.replace("coords_r: 1279", "coords_r: 1280").replace("coords_t: 719", "coords_t: 720");
         let shown = SHOWN_PARTS.iter().find(|(id, _)| *id == "volvo-fh").map(|(_, part)| part);
-        let patched = patch_gps_script(&script, "screen_volvo_fh", shown, 726).unwrap();
+        let patched = patch_gps_script(&script, "screen_volvo_fh", shown, 726, ONE_PAGE).unwrap();
         // The part shown: 7 to 1273 across, 716 to 4 up; the frame's 720 rows over that, so the texture's 726 reach
         // 6 rows' worth (5.9 units) further down, off the screen.
         let placed = "coords_l: 7\n coords_r: 1273\n coords_t: 716\n coords_b: -2\n";
         assert!(patched.contains(placed), "{patched}");
         // A texture the frame's size: on the part exactly.
-        let patched = patch_gps_script(&script, "screen_volvo_fh", shown, SCREEN_HEIGHT).unwrap();
+        let patched = patch_gps_script(&script, "screen_volvo_fh", shown, SCREEN_HEIGHT, ONE_PAGE).unwrap();
         assert!(patched.contains("coords_l: 7\n coords_r: 1273\n coords_t: 716\n coords_b: 4\n"), "{patched}");
     }
 
@@ -1367,14 +1474,14 @@ mod tests {
 
     #[test]
     fn keeps_a_scripts_windows_line_endings() {
-        let patched = patch_gps_script(&SCRIPT.replace('\n', "\r\n"), "screen_generic", None, SCREEN_HEIGHT).unwrap();
+        let patched = patch_gps_script(&SCRIPT.replace('\n', "\r\n"), "screen_generic", None, SCREEN_HEIGHT, ONE_PAGE).unwrap();
         assert!(patched.contains(" my_children[2]: _nameless.westplay.screen\r\n") && !patched.contains("\r\r"));
     }
 
     #[test]
     fn refuses_a_script_without_a_screen_on_group() {
         assert_eq!(
-            patch_gps_script(&SCRIPT.replace("id: 100", "id: 7"), "x", None, SCREEN_HEIGHT),
+            patch_gps_script(&SCRIPT.replace("id: 100", "id: 7"), "x", None, SCREEN_HEIGHT, ONE_PAGE),
             Err("no group with id 100".into())
         );
     }

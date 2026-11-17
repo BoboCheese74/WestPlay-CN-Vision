@@ -105,9 +105,15 @@ const RESULTS = 40
 
 /**
  * The places matching `query`: each of its words starts a word of the place's name, its city, or what it is
- * (`kindNames`, in the player's language: "fuel" finds filling stations). Those whose name starts with the
- * whole query come first (cities before the rest), then those whose name has every word, then the rest
- * (places in a city of that name); each group nearest first (from the truck, `from`).
+ * (`kindNames`, in the player's language: "fuel" finds filling stations).
+ *
+ * **A city of that name comes first, whatever its distance** (by a city's name the player means that city);
+ * **everything else is nearest first** (from the truck, `from`), the match's own group only breaking ties
+ * between places much the same distance away — and standing in for the distance where there is no `from`.
+ *
+ * The owner's report (2026-10-31) is why the rest is nearest first: a company whose name merely *starts* with
+ * what was typed, 80 km away, came before the filling station down the road, because the name-match group
+ * outranked the distance (a place merely being in a city of that name was in the last group, however near).
  */
 export function searchPlaces(
   places: readonly Destination[],
@@ -134,7 +140,7 @@ export function searchPlaces(
         : 3
     found.push({ place, group, distance: distanceOf(place) })
   }
-  found.sort((a, b) => a.group - b.group || a.distance - b.distance)
+  found.sort((a, b) => Number(a.group !== 0) - Number(b.group !== 0) || a.distance - b.distance || a.group - b.group)
   return found.slice(0, RESULTS).map(({ place }) => place)
 }
 

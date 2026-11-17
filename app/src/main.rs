@@ -33,6 +33,18 @@ struct Host {
 struct WestplayOpen(Arc<OpenRequest>);
 
 /// The companion's sign-ins and sign-outs (YouTube, Spotify, Apple Music), for the host.
+#[derive(Default)]
+struct Quitting {
+    /// Answered: the sheet's Quit was pressed, so the window closes as it would have.
+    asked: AtomicBool,
+    /// The sheet is up: the close pressed again over it has nothing more to ask.
+    shown: AtomicBool,
+    /// This ask got its sheet, so the fallback close (a page that can't answer) isn't due.
+    answered: AtomicBool,
+}
+
+const ASK_FALLBACK: Duration = Duration::from_secs(3);
+
 struct Accounts(Arc<AccountRequests>);
 
 /// The player's settings: kept on disk, applied live by the host thread, changed from the companion window.
@@ -45,9 +57,17 @@ struct SettingsStore {
 /// (`companion_ready`), so it never shows blank while the page loads; after this long it shows anyway.
 const SHOW_ANYWAY: Duration = Duration::from_secs(8);
 
+/// The player sent the window to the tray: it stays hidden until the tray asks for it, whatever
+/// the page says about being ready (a game starting makes the companion load its setup again, and
+/// `companion_ready` would bring the window back to the front — owner 2026-11-14).
+static HIDDEN_BY_USER: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 /// The companion's page has drawn its first screen: the window shows.
 #[tauri::command]
 fn companion_ready(window: WebviewWindow) {
+    if HIDDEN_BY_USER.load(std::sync::atomic::Ordering::Acquire) {
+        return;
+    }
     if !window.is_visible().unwrap_or(false) {
         westplay_host::startup::mark("app: window shown");
         let _ = window.show();
@@ -111,6 +131,36 @@ fn spotify_check(accounts: State<Accounts>) {
 
 /// Opens Apple's sign-in for Apple Music in a window on the desktop (the status then says when it's done).
 #[tauri::command]
+fn bilibili_sign_in(accounts: State<Accounts>) {
+    accounts.0.bilibili.request(AccountAction::SignIn);
+}
+
+#[tauri::command]
+fn netease_sign_in(accounts: State<Accounts>) {
+    accounts.0.netease.request(AccountAction::SignIn);
+}
+
+#[tauri::command]
+fn qq_music_sign_in(accounts: State<Accounts>) {
+    accounts.0.qq_music.request(AccountAction::SignIn);
+}
+
+#[tauri::command]
+fn qq_music_sign_out(accounts: State<Accounts>) {
+    accounts.0.qq_music.request(AccountAction::SignOut);
+}
+
+#[tauri::command]
+fn netease_sign_out(accounts: State<Accounts>) {
+    accounts.0.netease.request(AccountAction::SignOut);
+}
+
+#[tauri::command]
+fn bilibili_sign_out(accounts: State<Accounts>) {
+    accounts.0.bilibili.request(AccountAction::SignOut);
+}
+
+#[tauri::command]
 fn apple_music_sign_in(accounts: State<Accounts>) {
     accounts.0.apple_music.request(AccountAction::SignIn);
 }
@@ -144,6 +194,9 @@ enum Social {
     YouTube,
     Discord,
     Patreon,
+    /// The Chinese players' own way of supporting WestPlay (「爱发电」, afdian.com): added for them
+    /// (owner 2026-11-12).
+    Afdian,
 }
 
 /// Opens one of WestPlay's pages elsewhere (its YouTube channel, its Discord, its Patreon) in the player's browser.
@@ -154,7 +207,29 @@ fn open_social(site: Social) {
         Social::YouTube => "https://www.youtube.com/@tyraness",
         Social::Discord => "https://discord.com/invite/Jt34SmwU6",
         Social::Patreon => "https://www.patreon.com/c/westmods",
+        Social::Afdian => "https://afdian.com/a/west2026",
     });
+}
+
+#[tauri::command]
+fn quit_shown(window: WebviewWindow) {
+    westplay_host::log!("[quit] the sheet is up, asking whether WestPlay quits");
+    let quitting = window.state::<Quitting>();
+    quitting.shown.store(true, Ordering::Release);
+    quitting.answered.store(true, Ordering::Release);
+}
+
+#[tauri::command]
+fn quit_hidden(window: WebviewWindow) {
+    westplay_host::log!("[quit] the sheet was closed without quitting");
+    window.state::<Quitting>().shown.store(false, Ordering::Release);
+}
+
+#[tauri::command]
+fn quit_app(app: AppHandle, window: WebviewWindow) {
+    westplay_host::log!("[quit] the sheet says WestPlay quits");
+    window.state::<Quitting>().asked.store(true, Ordering::Release);
+    app.exit(0);
 }
 
 /// Where this run's `app.log` is (the About page): Documents\WestPlay\logs, or WestPlay's own data folder where
@@ -186,6 +261,26 @@ fn update_settings(settings: Settings, store: State<SettingsStore>, app: AppHand
     Ok(settings)
 }
 
+/// Where WestPlay's shipped resources are (`ui/`, `qq-music-layer/`): beside the app in an install,
+/// or the source folder in a development build.
+fn resources_folder(app: &tauri::AppHandle) -> Option<PathBuf> {
+    use tauri::Manager as _;
+    let resources = app.path().resource_dir().ok()?;
+    if resources.join("qq-music-layer").is_dir() {
+        return Some(resources);
+    }
+    // A development build: beside the executable, then the checkout's own folder.
+    let beside = std::env::current_exe().ok()?.parent()?.to_owned();
+    if beside.join("qq-music-layer").is_dir() {
+        return Some(beside);
+    }
+    let source = PathBuf::from(env!("CARGO_MANIFEST_DIR")).parent()?.to_owned();
+    source.join("qq-music-layer").is_dir().then_some(source)
+}
+
+/// The QQ middle layer, kept alive by the app (its `Drop` ends it when WestPlay does).
+struct QqLayer(std::sync::Mutex<Option<westplay_host::qq_layer::Layer>>);
+
 fn main() {
     // Started as administrator only to copy the plugin into the game (setup asked for it): that, and done.
     let args: Vec<String> = std::env::args().collect();
@@ -207,9 +302,13 @@ fn main() {
         .manage(update::Updates::default())
         .manage(WestplayOpen(open_request.clone()))
         .manage(Accounts(accounts.clone()))
+        .manage(Quitting::default())
         .register_asynchronous_uri_scheme_protocol(maps::SCHEME, maps::serve)
         .register_asynchronous_uri_scheme_protocol(maps::CUSTOMIZE_SCHEME, maps::serve_customize)
         .invoke_handler(tauri::generate_handler![
+            quit_hidden,
+            quit_shown,
+            quit_app,
             companion_ready,
             window_in_front,
             room_held,
@@ -246,15 +345,95 @@ fn main() {
             setup::finish_setup,
             setup::uninstall_from_game,
             setup::remove_data,
-            setup::leave_pc
+            setup::leave_pc,
+            bilibili_sign_in,
+            netease_sign_in,
+            qq_music_sign_in,
+                    bilibili_sign_out,
+                    netease_sign_out,
+                    qq_music_sign_out,
         ])
+        .on_window_event(|window, event| {
+            // The close button puts WestPlay in the tray instead of ending it: it keeps playing, and
+            // the tray's menu is where it really quits.
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                api.prevent_close();
+                HIDDEN_BY_USER.store(true, std::sync::atomic::Ordering::Release);
+                let _ = window.hide();
+                westplay_host::log!("[quit] the window's close: hidden to the tray");
+            }
+        })
         .setup(move |app| {
             westplay_host::startup::mark("app: window set up");
+            // The QQ middle layer: a Python process of WestPlay's own, for QQ Music's page (qq_layer.rs).
+            // Its folder is shipped beside the app; a build without it simply has no QQ Music data.
+            let qq_layer = resources_folder(app.handle()).and_then(|resources| {
+                westplay_host::qq_layer::Layer::start(&westplay_host::qq_layer::folder(&resources))
+            });
+            if let Some(layer) = &qq_layer {
+                westplay_host::startup::mark(&format!(
+                    "app: QQ layer at {}",
+                    layer.folder().display()
+                ));
+            }
+            // Kept by the app for as long as it runs: a local would be dropped at the end of this
+            // setup closure, and its `Drop` ends the layer with it (which it did: the layer served for
+            // a moment and then went).
+            app.manage(QqLayer(std::sync::Mutex::new(qq_layer)));
+            // The tray: the closed window lives here. Its menu shows WestPlay again or quits it for good.
+            {
+                use tauri::menu::{Menu, MenuItem};
+                use tauri::tray::{TrayIconBuilder, TrayIconEvent};
+                let show = MenuItem::with_id(app, "show", "显示 WestPlay", true, None::<&str>)?;
+                let quit = MenuItem::with_id(app, "quit", "退出 WestPlay", true, None::<&str>)?;
+                let menu = Menu::with_items(app, &[&show, &quit])?;
+                let icon = app
+                    .default_window_icon()
+                    .cloned()
+                    .ok_or_else(|| "no window icon to show in the tray".to_string())?;
+                TrayIconBuilder::with_id("westplay")
+                    .icon(icon)
+                    .tooltip("WestPlay")
+                    .menu(&menu)
+                    .show_menu_on_left_click(false)
+                    .on_menu_event(|app, event| match event.id.as_ref() {
+                        "show" => {
+                            if let Some(window) = app.get_webview_window("main") {
+                                HIDDEN_BY_USER.store(false, std::sync::atomic::Ordering::Release);
+                                let _ = window.show();
+                                let _ = window.unminimize();
+                                let _ = window.set_focus();
+                            }
+                        }
+                        "quit" => {
+                            westplay_host::log!("[quit] the tray says WestPlay quits");
+                            app.exit(0);
+                        }
+                        _ => {}
+                    })
+                    .on_tray_icon_event(|tray, event| {
+                        if let TrayIconEvent::Click { button, .. } = event
+                            && button == tauri::tray::MouseButton::Left
+                        {
+                            let app = tray.app_handle();
+                            if let Some(window) = app.get_webview_window("main") {
+                                HIDDEN_BY_USER.store(false, std::sync::atomic::Ordering::Release);
+                                let _ = window.show();
+                                let _ = window.unminimize();
+                                let _ = window.set_focus();
+                            }
+                        }
+                    })
+                    .build(app)?;
+                westplay_host::log!("[tray] shown");
+            }
             // A page that never says it's ready (it failed to load) still shows, rather than nothing at all.
             if let Some(window) = app.get_webview_window("main") {
                 std::thread::spawn(move || {
                     std::thread::sleep(SHOW_ANYWAY);
-                    if !window.is_visible().unwrap_or(true) {
+                    if !HIDDEN_BY_USER.load(std::sync::atomic::Ordering::Acquire)
+                        && !window.is_visible().unwrap_or(true)
+                    {
                         westplay_host::startup::mark("app: window shown without its page ready");
                         let _ = window.show();
                     }

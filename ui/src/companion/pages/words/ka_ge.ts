@@ -74,6 +74,9 @@ export const words: CompanionWords = {
     coachPassengersDetail: 'ყველა, სავარძლების ზემოთ',
     coachNote: 'ამ ავტობუსის მგზავრების დინამიკები: {n}, ყველა ერთდროულად. სუსტ პროცესორზე თამაშმა შეიძლება იჭედოს.',
     coachNoteAny: 'ავტობუსში მგზავრების ყველა დინამიკი ერთდროულად ჟღერს. სუსტ პროცესორზე თამაშმა შეიძლება იჭედოს.',
+    display: 'Truck Screen',
+    displayFirst: 'WestPlay tablet',
+    displayFirstDetail: 'WestPlay fills the tablet first, even in a truck whose own screen shows it.',
     elevated: {
       title: 'თამაში ადმინისტრატორის სახით არის გაშვებული',
       text: 'ამ დროს WestPlay ვერ ხედავს მარშრუტს, მითითებებსა და ამინდს. გაუშვით თამაში ჩვეულებრივად, არა ადმინისტრატორის სახით.',

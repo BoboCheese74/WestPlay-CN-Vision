@@ -74,6 +74,9 @@ export const words: CompanionWords = {
     coachPassengersDetail: 'Alle over setene',
     coachNote: 'Passasjerenes høyttalere i denne bussen: {n}, alle samtidig. På en svak prosessor kan spillet hakke.',
     coachNoteAny: 'I en buss spiller passasjerenes høyttalere alle samtidig. På en svak prosessor kan spillet hakke.',
+    display: 'Truck Screen',
+    displayFirst: 'WestPlay tablet',
+    displayFirstDetail: 'WestPlay fills the tablet first, even in a truck whose own screen shows it.',
     elevated: {
       title: 'Spillet kjører som administrator',
       text: 'Da kan ikke WestPlay lese ruten, veiledningen eller været i spillet. Start spillet på vanlig måte, ikke som administrator.',

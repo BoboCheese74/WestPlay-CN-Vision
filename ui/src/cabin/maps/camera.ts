@@ -58,9 +58,23 @@ export function truckAt(samples: readonly TruckSample[], time: number): TruckSam
 /** Zoom for a speed: close in town, further out on the motorway, so the road ahead keeps the same time. */
 export function zoomForSpeed(speed: number): number {
   const kmh = Math.abs(speed) * 3.6
-  const t = Math.min(1, Math.max(0, (kmh - 20) / 70))
+  // Town (20 km/h and under) is as close as the map goes; a motorway's 110 km/h and over as far out as it goes,
+  // two whole zoom levels between them, eased so the change comes as the truck picks up, not all at once.
+  const t = Math.min(1, Math.max(0, (kmh - 20) / 90))
   const eased = t * t * (3 - 2 * t)
-  return 17.2 - eased * 1.3
+  return 17.2 - eased * 2
+}
+
+/** The zoom the map follows at when it doesn't follow the speed (Settings › Maps, Zoom with Speed off): the
+ * motorway's view, one the town's names still read at. */
+export const STEADY_ZOOM = 16
+
+/**
+ * The zoom the following camera keeps for a speed, before the player's own offset: out with the speed, or one
+ * view for every speed where the player turned that off (Settings › Maps).
+ */
+export function followZoom(speed: number, offset: number, withSpeed: boolean): number {
+  return (withSpeed ? zoomForSpeed(speed) : STEADY_ZOOM) + offset
 }
 
 /** Exponential smoothing towards `target` with time constant `tau` (ms): frame-rate independent. */
@@ -85,6 +99,17 @@ export interface CameraPose {
 /** How long recentring glides back onto the truck, ms. */
 export const GLIDE_MS = 900
 
+/// The chase view's look-down angle, degrees: the map behind the truck, as CarPlay's driving view.
+export const PITCH = 52
+
+/**
+ * The map's look-down angle while it follows the truck: the chase view's tilt, or flat (0) — the Maps app's 2D
+ * mode (`flatLiveMap`), and north up, which looks down from above.
+ */
+export function followPitch(northUp: boolean, flat: boolean): number {
+  return northUp || flat ? 0 : PITCH
+}
+
 /** How long the map is left where it was moved before it recentres itself, ms (like CarPlay's). */
 export const AUTO_RECENTRE_MS = 15_000
 
@@ -100,10 +125,11 @@ export function clampZoomOffset(offset: number): number {
 
 /**
  * The zoom offset that puts the following camera at `zoom` at this speed: a zoom the player chose while
- * browsing, kept when the map goes back to following (and still varying with speed from there).
+ * browsing, kept when the map goes back to following (and still varying with speed from there, or standing
+ * as it was chosen where the map doesn't follow the speed).
  */
-export function zoomOffsetFor(zoom: number, speed: number): number {
-  return clampZoomOffset(zoom - zoomForSpeed(speed))
+export function zoomOffsetFor(zoom: number, speed: number, withSpeed = true): number {
+  return clampZoomOffset(zoom - followZoom(speed, 0, withSpeed))
 }
 
 /** Eases a glide's progress (0..1): gentle out, gentle in. */

@@ -206,6 +206,39 @@
   padding: 0 24px;
 }
 
+/* Its words, whole, opening the lyrics page: a button of its own, smaller for the row's room
+   (`LyricsPage.tsx`). */
+.now-playing .controls button.widget-lyrics {
+  width: 46px;
+  height: 46px;
+}
+
+/* What it plays at, under the controls: the player's own volume, as short a bar as the card's width allows
+   (owner 2026-10-30: the volume bar only, nothing else of the layout). */
+.now-playing .np-volume {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 0 34px;
+}
+
+.now-playing .np-speaker {
+  display: grid;
+  flex: none;
+  place-items: center;
+  opacity: 0.75;
+}
+
+.now-playing .np-volume input[type='range'] {
+  width: 100%;
+  height: 22px;
+  margin: 0;
+  accent-color: currentColor;
+  background: transparent;
+  cursor: pointer;
+}
+
 .now-playing .controls button {
   display: grid;
   place-items: center;
@@ -299,7 +332,8 @@
 
 /* Neutral widgets get smoky glass in dark mode, so text stays readable over bright wallpaper areas. */
 .appearance-dark .weather,
-.appearance-dark .job {
+.appearance-dark .job,
+.appearance-dark .vehicle-status {
   --glass: rgb(16 18 24 / 0.42);
   --glass-rim: rgb(255 255 255 / 0.22);
 }
@@ -397,5 +431,75 @@
   .guidance-widget .guidance-then .maneuver-glyph {
     width: 22px;
     height: 22px;
+  }
+}
+
+/* --- The player's own picture, and the truck's status (owner 2026-11-03) ----------------------------- */
+
+/* A wallpaper of the gallery's, cropped into the card: the picture is the card, with nothing written over it
+   (owner 2026-11-03). */
+.widget.photo {
+  position: relative;
+  padding: 0;
+  overflow: hidden;
+  isolation: isolate;
+}
+
+.widget.photo img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+
+/* "车辆状态" on top, "车身：12%" under it, and the trailer's line while one is hitched: the body's damage, the
+   tyres left out. */
+.vehicle-status {
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 2px;
+}
+
+.vehicle-status .kicker {
+  font-size: calc(18px * var(--text-scale, 1));
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+/* The damage is written in the screen's own text colour, solid in either look: a green or a red on the light
+   appearance's pale glass was unreadable (owner 2026-11-03). */
+.vehicle-status .vehicle-line {
+  font-size: calc(26px * var(--text-scale, 1));
+  font-weight: 650;
+  color: var(--text);
+}
+
+.vehicle-status .vehicle-line.trailer {
+  font-size: calc(21px * var(--text-scale, 1));
+  font-weight: 600;
+}
+
+.vehicle-status .vehicle-waiting {
+  font-size: calc(19px * var(--text-scale, 1));
+  font-weight: 500;
+  color: var(--text-dim);
+}
+
+/* The narrow or short column (a small screen's, its UI scaled up): the two compact as well. */
+@container widgets (max-width: 300px) or (max-height: 520px) {
+  .vehicle-status .kicker {
+    font-size: calc(14px * var(--text-scale, 1));
+  }
+
+  .vehicle-status .vehicle-line {
+    font-size: calc(21px * var(--text-scale, 1));
+  }
+
+  .vehicle-status .vehicle-line.trailer {
+    font-size: calc(17px * var(--text-scale, 1));
   }
 }

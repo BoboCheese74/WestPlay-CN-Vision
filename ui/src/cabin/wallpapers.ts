@@ -56,6 +56,21 @@ export function pickVariant(wallpaper: Wallpaper, appearance: Appearance): { app
   throw new Error(`wallpaper ${wallpaper.id} has no variants`)
 }
 
+/**
+ * The variant to show when each look has a wallpaper of its own (`light`, `dark`): the one chosen for
+ * `appearance`, in that appearance. Should it have no picture for it, the other look's wallpaper has one (the look
+ * stays the player's), and only then does the chosen one's other variant do, the look following it (`pickVariant`).
+ */
+export function pickForAppearance(
+  light: Wallpaper,
+  dark: Wallpaper,
+  appearance: Appearance,
+): { appearance: Appearance; src: string } {
+  const [wanted, other] = appearance === 'dark' ? [dark, light] : [light, dark]
+  const src = wanted.variants[appearance] ?? other.variants[appearance]
+  return src ? { appearance, src } : pickVariant(wanted, appearance)
+}
+
 /** Every image file any of `wallpapers` can show (for preparing them up front). */
 export function allWallpaperSources(wallpapers: Wallpaper[]): string[] {
   return wallpapers.flatMap((wallpaper) => Object.values(wallpaper.variants))

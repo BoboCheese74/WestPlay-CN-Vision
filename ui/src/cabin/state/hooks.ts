@@ -2,7 +2,7 @@ import { useEffect, useMemo } from 'react'
 import { create } from 'zustand'
 import { fileUrl } from '../../shared/customize'
 import { type AppIconRole, appIcon } from '../../shared/icons'
-import { findWallpaper, pickVariant } from '../wallpapers'
+import { findWallpaper, pickForAppearance, pickVariant } from '../wallpapers'
 import { type Appearance, resolveAppearance } from './appearance'
 import { animateAppearance } from './launch'
 import { useLooks, useWallpapers } from './looks'
@@ -35,6 +35,9 @@ const useShownLook = create<{ look: ResolvedLook | null }>()(() => ({ look: null
 function useWantedLook(): ResolvedLook {
   const mode = useCabin((state) => state.appearanceMode)
   const wallpaperId = useCabin((state) => state.wallpaperId)
+  const pair = useCabin((state) => state.wallpapersByAppearance)
+  const light = useCabin((state) => state.wallpaperLight)
+  const dark = useCabin((state) => state.wallpaperDark)
   const wallpapers = useWallpapers()
   // Select primitives: telemetry arrives ~20 times a second, but these only change every game minute.
   const gameTime = useLive((state) => (state.telemetry ? cabClock(state.telemetry, state.clockShift) : null))
@@ -42,9 +45,12 @@ function useWantedLook(): ResolvedLook {
 
   return useMemo(() => {
     const wanted = resolveAppearance(mode, { gameTime, lowBeam })
-    const { appearance, src } = pickVariant(findWallpaper(wallpaperId, wallpapers), wanted)
+    // A wallpaper for each look (Settings › Wallpaper), or the one for both.
+    const { appearance, src } = pair
+      ? pickForAppearance(findWallpaper(light, wallpapers), findWallpaper(dark, wallpapers), wanted)
+      : pickVariant(findWallpaper(wallpaperId, wallpapers), wanted)
     return { appearance, wallpaperSrc: src }
-  }, [mode, wallpaperId, wallpapers, gameTime, lowBeam])
+  }, [mode, wallpaperId, pair, light, dark, wallpapers, gameTime, lowBeam])
 }
 
 /** The appearance and wallpaper image on the screen: everything draws in this one, so it changes as one. */

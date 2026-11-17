@@ -49,13 +49,29 @@ describe('searchPlaces', () => {
   ]
   const names = (found: Destination[]) => found.map((p) => `${p.name} (${p.city})`)
 
-  it('puts the place named so first (a city before the rest), then those in a city of that name', () => {
+  it('puts a city of that name first, then everything else nearest first', () => {
     expect(names(searchPlaces(places, 'Tara', truck, KINDS))).toEqual([
+      // The city itself: by a city's name the player means that city, however far off it is (12 km here).
       'Taranto (Taranto)',
-      'Tarandi (Bari)',
-      // In Taranto: nearest first.
+      // Then the nearest of the rest: 4 km and 9 km, in Taranto.
       'Filling station (Taranto)',
       'Tradeaux (Taranto)',
+      // A company whose name merely starts with what was typed, 80 km away, comes last. It came **first**
+      // before 2026-10-31 (its name-match group outranked the distance), which is what the owner reported:
+      // the first result wasn't the nearest one.
+      'Tarandi (Bari)',
+    ])
+  })
+
+  it('falls back on what the name matches where the truck is not known', () => {
+    // No position: no distances, so the match's own group orders them (cities before the rest, then by name);
+    // inside a group the places' own order stands (nothing to tell them apart: Filling station is before
+    // Tradeaux in the list above, and stays so).
+    expect(names(searchPlaces(places, 'Tara', null, KINDS))).toEqual([
+      'Taranto (Taranto)',
+      'Tarandi (Bari)',
+      'Tradeaux (Taranto)',
+      'Filling station (Taranto)',
     ])
   })
 

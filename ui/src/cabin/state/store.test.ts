@@ -22,14 +22,22 @@ describe('the saved Settings choices', () => {
     vi.stubGlobal(
       'localStorage',
       savedStorage({
-        dashboardWidgets: { nowPlaying: false, destination: true, weather: false },
+        dashboardWidgets: { nowPlaying: false, destination: true, weather: false, photo: true, vehicle: true },
+        dashboardPhoto: 'plain',
         albumArt: false,
         hours24: false,
       }),
     )
     const { useCabin } = await import('./store')
+    expect(useCabin.getState().dashboardWidgets).toEqual({
+      nowPlaying: false,
+      destination: true,
+      weather: false,
+      photo: true,
+      vehicle: true,
+    })
+    expect(useCabin.getState().dashboardPhoto).toBe('plain')
     expect(useCabin.getState().hours24).toBe(false)
-    expect(useCabin.getState().dashboardWidgets).toEqual({ nowPlaying: false, destination: true, weather: false })
     expect(useCabin.getState().albumArt).toBe(false)
   })
 
@@ -39,14 +47,28 @@ describe('the saved Settings choices', () => {
       savedStorage({ dashboardWidgets: { weather: false, nowPlaying: 'no' }, albumArt: 'off' }),
     )
     const { useCabin } = await import('./store')
-    expect(useCabin.getState().dashboardWidgets).toEqual({ nowPlaying: true, destination: true, weather: false })
+    expect(useCabin.getState().dashboardWidgets).toEqual({
+      nowPlaying: true,
+      destination: true,
+      weather: false,
+      photo: false,
+      vehicle: false,
+    })
     expect(useCabin.getState().albumArt).toBe(true)
   })
 
-  it('are all on when nothing was saved (an earlier WestPlay)', async () => {
+  it('take each widget’s own default when nothing was saved (an earlier WestPlay)', async () => {
     vi.stubGlobal('localStorage', savedStorage({ appearanceMode: 'dark' }))
     const { useCabin } = await import('./store')
-    expect(useCabin.getState().dashboardWidgets).toEqual({ nowPlaying: true, destination: true, weather: true })
+    // The three the Dashboard had, on; the picture and the truck's status are the player's to turn on.
+    expect(useCabin.getState().dashboardWidgets).toEqual({
+      nowPlaying: true,
+      destination: true,
+      weather: true,
+      photo: false,
+      vehicle: false,
+    })
+    expect(useCabin.getState().dashboardPhoto).toBe('')
     expect(useCabin.getState().albumArt).toBe(true)
     expect(useCabin.getState().hours24).toBe(true)
     expect(useCabin.getState().appearanceMode).toBe('dark')
@@ -67,5 +89,21 @@ describe('the saved Text Size', () => {
     const { useCabin } = await import('./store')
     const { DEFAULT_TEXT_SIZE } = await import('./textSize')
     expect(useCabin.getState().textSize).toBe(DEFAULT_TEXT_SIZE)
+  })
+})
+
+describe('the game’s mirror on the dashboard', () => {
+  it('is on until the player turns it off', async () => {
+    vi.stubGlobal('localStorage', savedStorage({}))
+    const { useCabin } = await import('./store')
+    expect(useCabin.getState().mirrorOn).toBe(true)
+    useCabin.getState().setMirrorOn(false)
+    expect(useCabin.getState().mirrorOn).toBe(false)
+  })
+
+  it('comes back off as it was left', async () => {
+    vi.stubGlobal('localStorage', savedStorage({ mirrorOn: false }))
+    const { useCabin } = await import('./store')
+    expect(useCabin.getState().mirrorOn).toBe(false)
   })
 })

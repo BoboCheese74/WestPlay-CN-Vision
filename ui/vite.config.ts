@@ -1,5 +1,5 @@
 /// <reference types="vitest/config" />
-import { createReadStream, existsSync, readFileSync, readdirSync } from 'node:fs'
+import { createReadStream, existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
 import { extname, resolve, sep } from 'node:path'
 import react from '@vitejs/plugin-react'
 import { type Plugin, defineConfig } from 'vite'
@@ -44,6 +44,47 @@ function noPlaceholders(): Plugin {
  * the export left out holds nothing (open sea, drawn as the map's ground), so it's answered empty rather
  * than with the page Vite gives unknown addresses.
  */
+/**
+ * Marks cabin.html as the companion's demo screen (`<meta name="westplay-demo">`).
+ *
+ * The companion's window shows WestPlay in an iframe (`?demo&power`), but where WestPlay's pages are
+ * served from a folder — the installed app, WebView2's virtual host — that query never reaches the
+ * page: `https://westplay.cabin/cabin.html`, nothing more. The iframe's `name` and localStorage
+ * can't carry it either (the frame is another WebView2 profile). So the page itself says it, in its
+ * own head, and `shared/host.ts` reads it there.
+ *
+ * The host's own cabin page is this same file, so both get the mark; `IS_DEMO` only matters where
+ * nothing else does — a plain browser preview, and this demo — and the host's page is the one the
+ * host tells its window about (`hostScripts`).
+ */
+/**
+ * Writes `cabin-demo.html` beside the built `cabin.html`: the same WestPlay, with a mark in its own
+ * head that says it is the companion's demo screen (`shared/host.ts`, `IS_DEMO`).
+ *
+ * It needs a file of its own: the companion shows WestPlay in an iframe with `?demo&power`, but
+ * where the pages are served from a folder — the installed app, WebView2's virtual host — the query
+ * never reaches the page (`/cabin.html?demo&power` arrives as `/cabin.html`). The iframe's `name`
+ * can't carry it either, and neither can localStorage (the frame is another WebView2 profile).
+ */
+function demoPage(): Plugin {
+  return {
+    name: 'westplay-demo-page',
+    apply: 'build',
+    writeBundle(options, bundle) {
+      const page = Object.keys(bundle).find((name) => name.endsWith('cabin.html'))
+      if (!page) return
+      const file = bundle[page]
+      if (file.type !== 'asset' || typeof file.source !== 'string') return
+      const html = file.source.replace(
+        '</head>',
+        '    <meta name="westplay-demo" content="companion" />\n  </head>',
+      )
+      const dir = options.dir ?? resolve(import.meta.dirname, 'dist')
+      writeFileSync(resolve(dir, 'cabin-demo.html'), html)
+    },
+  }
+}
+
 function devMap(): Plugin {
   const ROOT = resolve(import.meta.dirname, 'public/dev-map')
   const TILE = /\/tiles(?:-\d+)?\/\d+\/\d+\/\d+\.pbf$/
@@ -83,7 +124,7 @@ const VERSION = /^version = "([^"]+)"/m.exec(readFileSync(resolve(import.meta.di
 
 export default defineConfig({
   define: { __WESTPLAY_VERSION__: JSON.stringify(VERSION ?? '') },
-  plugins: [react(), noPlaceholders(), devMap()],
+  plugins: [react(), noPlaceholders(), devMap(), demoPage()],
   clearScreen: false,
   test: {
     include: ['src/**/*.test.ts'],

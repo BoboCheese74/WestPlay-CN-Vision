@@ -26,9 +26,9 @@ use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{LazyLock, Mutex};
 
 use westplay_shared::{
-    CAB_MARK_HEIGHT, CAB_MARK_WIDTH, PARKING_MARK_HEIGHT, PARKING_MARK_WIDTH, SCREEN_HEIGHT, SCREEN_WIDTH,
-    ScreenLayout, TABLET, TRUCK_SUPPORTED, TRUCK_UNSUPPORTED, screen_layout_for_texture, screen_layouts,
-    screen_supported,
+    PARKING_MARK_HEIGHT, PARKING_MARK_WIDTH,
+    CAB_MARK_HEIGHT, CAB_MARK_WIDTH, SCREEN_HEIGHT, SCREEN_WIDTH, ScreenLayout, TABLET, TRUCK_SUPPORTED,
+    TRUCK_UNSUPPORTED, screen_layout_for_texture, screen_layouts, screen_supported,
 };
 use windows::Win32::Graphics::Direct3D11::{
     D3D11_BIND_RENDER_TARGET, D3D11_BIND_SHADER_RESOURCE, D3D11_BOX, D3D11_SUBRESOURCE_DATA, D3D11_TEXTURE2D_DESC,
@@ -115,6 +115,13 @@ static TABLET_BLANK: AtomicBool = AtomicBool::new(false);
 /// blank in it (owner 2026-10-27). Both showing, the page was laid out for one and then the other every frame (a
 /// player's Scania S, its own screen and the tablet: 85 times a second, the page slowing and freezing).
 static OWN_SCREEN_SEEN: AtomicBool = AtomicBool::new(false);
+/// Whether WestPlay's tablet has shown the page since the truck changed: with the tablet given the display's
+/// priority, the truck's own screens keep the game's own from then on (the other way round from
+/// [`OWN_SCREEN_SEEN`]).
+static TABLET_SEEN: AtomicBool = AtomicBool::new(false);
+/// Whether the log has said the truck's own screen keeps the game's own while the tablet shows WestPlay (once a
+/// truck: `truck_changed`).
+static OWN_KEPT_SAID: AtomicBool = AtomicBool::new(false);
 /// The frame any screen of WestPlay's layouts (WestPlay's or not) was last drawn in, in this truck (0: none since the
 /// truck changed).
 static ANY_SCREEN_DRAWN: AtomicU64 = AtomicU64::new(0);
@@ -186,8 +193,10 @@ pub fn truck_changed(id: &str) {
             log!("tablet: kept blank in this truck");
         }
         TABLET_BLANK.store(blank, Ordering::Release);
-        // Another truck: its own screen not seen showing WestPlay yet.
+        // Another truck: its own screen not seen showing WestPlay yet, nor the tablet.
         OWN_SCREEN_SEEN.store(false, Ordering::Release);
+        TABLET_SEEN.store(false, Ordering::Release);
+        OWN_KEPT_SAID.store(false, Ordering::Release);
     }
     SUPPORTED_DRAWN.store(0, Ordering::Release);
     UNSUPPORTED_SAID.store(false, Ordering::Release);
@@ -268,9 +277,22 @@ pub unsafe fn on_set_shader_resources(context: *mut c_void, count: u32, views: *
 }
 
 /// Whether a screen shows WestPlay itself: a layout WestPlay's in the truck (`supported`); the tablet not where it's
-/// kept blank (`blank`: the vehicles set apart), nor once the truck's own screen has shown WestPlay (`own_seen`).
-fn shows_here(tablet: bool, supported: bool, blank: bool, own_seen: bool) -> bool {
-    supported && !(tablet && (blank || own_seen))
+/// kept blank (`blank`: the vehicles set apart), nor once the truck's own screen has shown WestPlay (`own_seen`);
+/// and the truck's own screen not once the tablet has (`tablet_seen`), where the tablet has the display's priority
+/// (`tablet_first`: the player's setting, the companion's Truck Screen). One of the two screens shows it: the one
+/// the priority names, as soon as that one has been drawn; the other keeps the game's own.
+fn shows_here(tablet: bool, supported: bool, blank: bool, own_seen: bool, tablet_seen: bool, tablet_first: bool) -> bool {
+    if !supported {
+        return false;
+    }
+    if tablet {
+        // The tablet never shows it in the vehicles it's kept blank in (the game's own screen there), and with the
+        // truck's own screen first only until that one has shown WestPlay.
+        !blank && (tablet_first || !own_seen)
+    } else {
+        // The truck's own screen keeps the game's own while the tablet has the page.
+        !(tablet_first && tablet_seen)
+    }
 }
 
 /// Whether a screen of WestPlay's, last drawn in frame `drawn` (0: none since the truck changed), was drawn
@@ -413,15 +435,26 @@ unsafe fn refresh(context: &ID3D11DeviceContext, texture: ID3D11Texture2D, heigh
         let tablet = layout == westplay_shared::tablet_layout();
         let supported =
             truck.as_ref().map_or_else(on_supported_truck, |truck| screen_supported(layout, truck.id.as_str()));
-        if supported && !tablet && !OWN_SCREEN_SEEN.swap(true, Ordering::AcqRel) {
-            log!("screen: {} shows WestPlay in this truck: the tablet kept blank in it", screen_layouts()[layout].id);
-        }
+        // Which screen the player gave WestPlay to (`HostBlock::tablet_first`): the truck's own, or the tablet.
+        let tablet_first = bridge::get().is_some_and(|b| b.host.tablet_first.load(Ordering::Acquire) == 1);
         let here = shows_here(
             tablet,
             supported,
             TABLET_BLANK.load(Ordering::Acquire),
             OWN_SCREEN_SEEN.load(Ordering::Acquire),
+            TABLET_SEEN.load(Ordering::Acquire),
+            tablet_first,
         );
+        if here && !tablet && !OWN_SCREEN_SEEN.swap(true, Ordering::AcqRel) {
+            log!("screen: {} shows WestPlay in this truck: the tablet kept blank in it", screen_layouts()[layout].id);
+        }
+        if here && tablet && !TABLET_SEEN.swap(true, Ordering::AcqRel) {
+            let why = if tablet_first { "the display's priority" } else { "the truck's own screen isn't" };
+            log!("tablet: shows WestPlay in this truck ({why}): the truck's own screens kept as the game's");
+        }
+        if here && !tablet && tablet_first && !OWN_KEPT_SAID.swap(true, Ordering::AcqRel) {
+            log!("screen: {} isn't WestPlay's now: the tablet has the display's priority", screen_layouts()[layout].id);
+        }
         let lately = drawn_lately(SUPPORTED_DRAWN.load(Ordering::Acquire), frame);
         if here {
             SUPPORTED_DRAWN.store(frame.max(1), Ordering::Release);
@@ -703,14 +736,32 @@ mod tests {
 
     #[test]
     fn the_tablet_is_blank_once_the_trucks_own_screen_shows_westplay() {
-        // A truck's own screen of WestPlay's shows it; one that isn't WestPlay's in the truck doesn't.
-        assert!(shows_here(false, true, false, true));
-        assert!(!shows_here(false, false, false, false));
-        // The tablet shows it in a truck whose own screen hasn't (none of WestPlay's, or not seen yet)...
-        assert!(shows_here(true, true, false, false));
+        // The truck's own screen first (the default): a screen of WestPlay's in the truck shows it...
+        assert!(shows_here(false, true, false, true, false, false));
+        // ...one that isn't WestPlay's in the truck doesn't...
+        assert!(!shows_here(false, false, false, false, false, false));
+        // ...and the tablet shows it in a truck whose own screen hasn't (none of WestPlay's, or not seen yet)...
+        assert!(shows_here(true, true, false, false, false, false));
         // ...but not once it has, nor in the vehicles it's kept blank in.
-        assert!(!shows_here(true, true, false, true));
-        assert!(!shows_here(true, true, true, false));
+        assert!(!shows_here(true, true, false, true, false, false));
+        assert!(!shows_here(true, true, true, false, false, false));
+    }
+
+    #[test]
+    fn the_tablet_first_keeps_the_trucks_own_screen_as_the_games() {
+        // The tablet given the display's priority shows it, whatever the truck's own screen did...
+        assert!(shows_here(true, true, false, false, false, true));
+        assert!(shows_here(true, true, false, true, false, true));
+        // ...while its own screen shows the game's own, from the moment the tablet has the page...
+        assert!(!shows_here(false, true, false, false, true, true));
+        // ...and before that (the tablet not drawn yet) the truck's own screen keeps showing WestPlay.
+        assert!(shows_here(false, true, false, false, false, true));
+        // A truck the tablet is kept blank in: its own screen keeps the page.
+        assert!(!shows_here(true, true, true, false, false, true));
+        assert!(shows_here(false, true, true, false, false, true));
+        // Not WestPlay's truck at all: neither.
+        assert!(!shows_here(true, false, false, false, false, true));
+        assert!(!shows_here(false, false, false, false, true, true));
     }
 
     #[test]

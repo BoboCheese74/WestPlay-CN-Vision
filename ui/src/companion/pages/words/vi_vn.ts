@@ -74,6 +74,9 @@ export const words: CompanionWords = {
     coachPassengersDetail: 'Tất cả loa phía trên ghế ngồi',
     coachNote: 'Loa cho hành khách trên xe này: {n}, tất cả phát cùng lúc. Với bộ xử lý yếu, trò chơi có thể bị giật.',
     coachNoteAny: 'Trên xe khách, loa cho hành khách đều phát cùng lúc. Với bộ xử lý yếu, trò chơi có thể bị giật.',
+    display: 'Truck Screen',
+    displayFirst: 'WestPlay tablet',
+    displayFirstDetail: 'WestPlay fills the tablet first, even in a truck whose own screen shows it.',
     elevated: {
       title: 'Trò chơi đang chạy với quyền quản trị viên',
       text: 'Khi đó WestPlay không thấy được lộ trình, chỉ dẫn và thời tiết của trò chơi. Hãy khởi động trò chơi bình thường, không chạy với quyền quản trị viên.',

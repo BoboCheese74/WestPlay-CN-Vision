@@ -1,5 +1,7 @@
-import { type CountryGrid, clockShiftAt, parseGrid } from '../maps/countries'
+import { type CountryGrid, GAME_ZONE, countryAt, parseGrid } from '../maps/countries'
 import { loadMapData, onMapChange } from '../maps/mapData'
+import { cabClock, postToHost } from '../../shared/host'
+import { formatGameTime } from '../../shared/format'
 import { useLive } from './store'
 
 /**
@@ -36,9 +38,28 @@ export function followTimeZone(): () => void {
   // as each comes.
   let grid: CountryGrid | null = null
   let gridFrom: string | null | undefined
+  // The zone last worked out, kept while the truck's country isn't known (a ferry, a road a map mod added,
+  // off the grid): falling back to the game's own time there put the clock an hour out in the east (owner
+  // 2026-10-29: an hour behind the game's clock at times). The grid gives a square without a country's road
+  // the nearest's.
+  let kept = 0
+  // What the clock was last worked out from, for the log (the host logs each stage once).
+  let said: string | null = null
   const apply = () => {
     const { timeZones, telemetry, clockShift } = useLive.getState()
-    const shift = timeZones && grid && telemetry ? clockShiftAt(grid, telemetry.x, telemetry.z) : 0
+    const country = timeZones && grid && telemetry ? countryAt(grid, telemetry.x, telemetry.z) : 0
+    const zone = timeZones && grid ? grid.zones.get(country) : undefined
+    const shift = !timeZones ? 0 : zone === undefined ? kept : zone - GAME_ZONE
+    if (timeZones) kept = shift
+    // Said once for each change, with the clock it makes then: a player's log then says which country, which
+    // zone and what WestPlay showed, beside the game's own clock (owner 2026-10-29: kept for players to test
+    // with).
+    const found = `clock country ${country} zone ${zone ?? 'unknown'} shift ${shift} on ${timeZones}`
+    if (found !== said) {
+      said = found
+      const shown = telemetry ? formatGameTime(cabClock(telemetry, shift)) : '--:--'
+      postToHost({ type: 'startup', stage: `${found} at ${shown}` })
+    }
     // Set only when it changes: setting it calls this again.
     if (shift !== clockShift) useLive.setState({ clockShift: shift })
   }
@@ -59,6 +80,7 @@ export function followTimeZone(): () => void {
   return () => {
     stopLive()
     stopMap()
+    kept = 0
     useLive.setState({ clockShift: 0 })
   }
 }

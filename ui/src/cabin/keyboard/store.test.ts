@@ -54,7 +54,7 @@ describe('useKeyboard', () => {
     useKeyboard.getState().press({ kind: 'globe' })
     useKeyboard.getState().detach('a')
     useKeyboard.getState().attach(fakeField('b').typing, 'tr')
-    expect(useKeyboard.getState().keys.language).toBe('en')
+    expect(useKeyboard.getState().keys.language).toBe('zh')
   })
 
   it('keeps shift and the layer while the same field is selected again, and resets them for another', () => {

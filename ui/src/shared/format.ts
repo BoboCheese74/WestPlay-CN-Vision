@@ -50,6 +50,16 @@ export function roadSpeed(speed: number, mph = false): number {
 export interface TimeWords {
   minutes: (minutes: number) => string
   hours: (hours: number, minutes: string) => string
+  hoursOnly: (hours: number) => string
+}
+
+/**
+ * How long is left until something (in-game minutes), in the cab's words: "28 小时", or minutes while there's
+ * less than one hour left (FIXES §69.3, §70).
+ */
+export function formatTimeLeft(minutes: number, words: TimeWords): string {
+  const left = Math.max(0, Math.floor(minutes))
+  return left >= 60 ? words.hoursOnly(Math.floor(left / 60)) : words.minutes(left)
 }
 
 /** A trip's time left (game minutes) as Apple shows it: "12 min", "1:05 hrs". */

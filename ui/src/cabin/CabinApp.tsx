@@ -7,7 +7,14 @@ import { pauseSpotifyWithGame, spotifyPlayer } from './apps/spotify/pauseWithGam
 import { pauseYouTubeWithGame, youtubePlayer } from './apps/youtube/pauseWithGame'
 import { pauseYouTubeMusicWithGame, youtubeMusicPlayer } from './apps/youtubeMusic/pauseWithGame'
 import { pausePlayerWithGame, playerAppPlayer } from './apps/player/pauseWithGame'
+import { pauseQqMusicWithGame, qqMusicPlayer } from './apps/qq/pauseWithGame'
 import { pauseSafariWithGame, safariPlayer } from './apps/safari/pauseWithGame'
+import { webappPlayer } from './apps/web/player'
+import { pauseWebAppWithPower } from './apps/web/pauseWithPower'
+import './performance.css'
+import { followWallpaperRotation } from './state/wallpaperRotation'
+import { quietWhileReversing } from './reverse/quiet'
+import { ReverseCamera } from './reverse/ReverseCamera'
 import { AppScreen } from './apps/AppScreen'
 import { BootScreen } from './boot/BootScreen'
 import { Dashboard } from './dashboard/Dashboard'
@@ -33,12 +40,28 @@ import { followTimeZone } from './state/timeZone'
 const FOLLOW_POWER = isInHost() || new URLSearchParams(location.search).has('power')
 
 /** The cab's music players, and Safari's pages' sound (it plays one at a time with them, owner 2026-11-07). */
-const PLAYERS = [youtubePlayer, spotifyPlayer, appleMusicPlayer, youtubeMusicPlayer, playerAppPlayer, safariPlayer]
+const PLAYERS = [
+  webappPlayer,
+  youtubePlayer,
+  spotifyPlayer,
+  appleMusicPlayer,
+  youtubeMusicPlayer,
+  qqMusicPlayer,
+  playerAppPlayer,
+  safariPlayer,
+]
 
 /** The in-cabin screen: the shell around the screen for the current route, after the boot sequence. */
 export function CabinApp() {
   const route = useCabin((state) => state.navigation.route)
   const phase = useCabin((state) => state.power.phase)
+  // The performance mode (Settings › Display & Performance): a class on <html>, so the stylesheet
+  // (performance.css) gives up the map's 3D buildings and other effects to run lighter.
+  const performance = useCabin((state) => state.performanceMode)
+  useEffect(() => {
+    document.documentElement.classList.toggle('performance', performance)
+  }, [performance])
+
   useEffect(() => connectHost(), [])
   // YouTube, Spotify, Apple Music, YouTube Music and Player pause with the game (its menu, tabbing out) and play
   // on after.
@@ -47,9 +70,17 @@ export function CabinApp() {
   useEffect(() => pauseAppleMusicWithGame(), [])
   useEffect(() => pauseYouTubeMusicWithGame(), [])
   useEffect(() => pausePlayerWithGame(), [])
+  useEffect(() => pauseQqMusicWithGame(), [])
   useEffect(() => pauseSafariWithGame(), [])
   // One of them at a time: the newest to start plays on, the others pause (apps/oneAtATime.ts).
   useEffect(() => oneAtATime(PLAYERS), [])
+  // A different wallpaper at each power-up (Settings › Wallpaper, state/wallpaperRotation.ts).
+  useEffect(() => followWallpaperRotation(), [])
+  // The music falls quiet while the truck reverses, the camera's screen taking the cab.
+  useEffect(() => quietWhileReversing(PLAYERS), [])
+
+  // The web app's sites: the electrics going off, as Apple Music does.
+  useEffect(() => pauseWebAppWithPower(), [])
   // The player's keybinds pressed in the game: the music's volume, or play/pause (apps/keybinds.ts).
   useEffect(() => followKeybinds(), [])
   // The clock where the truck is: its country's time zone, as the game's own clock (state/timeZone.ts).
@@ -86,6 +117,9 @@ export function CabinApp() {
         </>
       }
     >
+      {/* The reversing camera takes the whole screen while the truck is in reverse (*/}
+      {/* reverse/ReverseCamera.tsx): the game's own picture there instead of the cabin. */}
+      {powered && <ReverseCamera />}
       {/* The screen mounts when the power is on, and fades in after the boot. */}
       {powered && <Screens route={route} />}
     </Shell>

@@ -9,6 +9,7 @@ import { textScale } from '../state/textSize'
 import { Player } from '../apps/youtube/Player'
 import { holeMask, onlyHole, usePageHole } from '../apps/safari/hole'
 import { useYouTube } from '../apps/youtube/youtube'
+import { useWebApp } from '../apps/web/webapp'
 import { useYouTubeMusic } from '../apps/youtubeMusic/youtubeMusic'
 import { Keyboard } from '../keyboard/Keyboard'
 import { useCabin, useLive } from '../state/store'
@@ -87,7 +88,13 @@ export function Shell({ children, overlay, entering = false }: ShellProps) {
   // Safari's page the same way, with what of Safari is drawn over it (apps/safari/hole.ts).
   const pageHole = usePageHole((state) => state.hole)
   const pageCovers = usePageHole((state) => state.covers)
-  const hole = youtubeHole ?? musicHole ?? pageHole
+  // A streaming site's own page (apps/web, the WebView under the cabin): cut open like the rest.
+  const webAppHole = useWebApp((state) => state.hole)
+  const webAppShown = useWebApp((state) => state.shown)
+  const hole = webAppHole ?? youtubeHole ?? musicHole ?? pageHole
+  // The site's page shows through only once the host has it on show: before that the app window keeps its
+  // own background over the room (webapp.ts's cover), rather than the game's screen showing there.
+  const cut = hole !== null && (hole !== webAppHole || webAppShown)
   const covers = useMemo(() => (pageHole ? Object.values(pageCovers) : []), [pageHole, pageCovers])
   // Over a video full screen, pointing at the left edge brings the sidebar back (shell/sidebarPeek.ts).
   const carplay = useRef<HTMLDivElement>(null)
@@ -135,7 +142,7 @@ export function Shell({ children, overlay, entering = false }: ShellProps) {
         className={`carplay${truckScreen ? ' handed-over' : ''}${watching ? ' watching' : ''}${watching && holdSidebar ? ' hold-sidebar' : ''}${peek ? ' peek-sidebar' : ''}`}
         style={{
           transformOrigin: `${button.x - insets.left}px ${button.y}px`,
-          ...(hole && !watching && isInHost() ? holeMask(hole, covers) : {}),
+          ...(cut && !watching && isInHost() ? holeMask(hole, covers) : {}),
         }}
         aria-hidden={truckScreen}
       >

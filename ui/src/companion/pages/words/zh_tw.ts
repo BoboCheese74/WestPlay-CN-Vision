@@ -73,6 +73,9 @@ export const words: CompanionWords = {
     coachPassengersDetail: '座位上方的所有喇叭',
     coachNote: '這輛巴士的乘客喇叭：{n} 個，全部同時播放。處理器較弱時，遊戲可能會卡頓。',
     coachNoteAny: '在巴士中，乘客喇叭全部同時播放。處理器較弱時，遊戲可能會卡頓。',
+    display: '螢幕顯示',
+    displayFirst: '優先顯示在平板',
+    displayFirstDetail: 'WestPlay 優先顯示在平板上，即使卡車自己的螢幕也顯示它。',
     elevated: {
       title: '遊戲正以系統管理員身分執行',
       text: '這樣 WestPlay 無法讀取遊戲的路線、導航和天氣。請以一般方式啟動遊戲，不要以系統管理員身分執行。',

@@ -4,6 +4,7 @@ import {
   customWallpaper,
   DEFAULT_WALLPAPER_ID,
   findWallpaper,
+  pickForAppearance,
   pickVariant,
   type Wallpaper,
 } from './wallpapers'
@@ -19,6 +20,24 @@ describe('pickVariant', () => {
 
   it('falls back to the other variant and makes the UI follow it', () => {
     expect(pickVariant(darkOnly, 'light')).toEqual({ appearance: 'dark', src: 'd.svg' })
+  })
+})
+
+describe('pickForAppearance', () => {
+  it('shows each look its own wallpaper', () => {
+    expect(pickForAppearance(both, darkOnly, 'light')).toEqual({ appearance: 'light', src: 'l.jpg' })
+    expect(pickForAppearance(both, darkOnly, 'dark')).toEqual({ appearance: 'dark', src: 'd.svg' })
+  })
+
+  it('takes the other look’s picture when the chosen one has none for it, the look unchanged', () => {
+    const lightOnly: Wallpaper = { id: 'light', name: 'Light', variants: { light: 'l2.jpg' } }
+    expect(pickForAppearance(darkOnly, lightOnly, 'light')).toEqual({ appearance: 'light', src: 'l2.jpg' })
+    expect(pickForAppearance(darkOnly, lightOnly, 'dark')).toEqual({ appearance: 'dark', src: 'd.svg' })
+  })
+
+  it('falls back on the chosen one when neither has that look, and follows it', () => {
+    const other: Wallpaper = { id: 'other', name: 'Other', variants: { dark: 'd2.jpg' } }
+    expect(pickForAppearance(darkOnly, other, 'light')).toEqual({ appearance: 'dark', src: 'd.svg' })
   })
 })
 

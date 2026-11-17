@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildingFilter, canopiesOver } from './buildings'
+import { buildingFilter, buildingsVisibility, canopiesOver } from './buildings'
 
 const square = (x: number, y: number, size: number): [number, number][] => [
   [x, y],
@@ -27,5 +27,12 @@ describe('canopies over the truck', () => {
   it('leaves out only the canopies the truck is under', () => {
     expect(buildingFilter([])).toBeNull()
     expect(buildingFilter([3, 7])).toEqual(['!', ['in', ['get', 'id'], ['literal', [3, 7]]]])
+  })
+})
+
+describe('the raised buildings and the performance mode', () => {
+  it('raises them, unless the screen has given them up for performance', () => {
+    expect(buildingsVisibility(false)).toBe('visible')
+    expect(buildingsVisibility(true)).toBe('none')
   })
 })

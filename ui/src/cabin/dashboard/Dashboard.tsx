@@ -1,10 +1,11 @@
+import { WebAppLyrics } from '../apps/web/LyricsPage'
 import { useEffect, useState } from 'react'
 import { GuidanceCard } from '../maps/GuidanceCard'
 import { useCabin } from '../state/store'
 import { useMapGrown } from './idle'
 import { MapView } from './MapView'
 import { useAnyWidget } from './widgetState'
-import { DestinationWidget, NowPlayingWidget, WeatherWidget } from './widgets'
+import { DestinationWidget, NowPlayingWidget, PhotoWidget, VehicleWidget, WeatherWidget } from './widgets'
 import './dashboard.css'
 
 /** Must match --motion-duration in shell.css: how long the map takes to grow or shrink. */
@@ -18,10 +19,11 @@ type Growth = 'rest' | 'wide' | 'grown' | 'shrinking'
 
 /**
  * CarPlay-style Dashboard: the map takes most of the space (with one ETA pill), and a column of one-job
- * widgets sits on the right: turn-by-turn on top while there's a route, the weather where
- * there's room. Driving at 30 km/h or more with the screen left alone 30 s, the widgets slide away to the right
- * and the map grows into their room; any use of the screen, or slowing below it, brings them back (owner
- * 2026-11-03; a setting, Settings › Dashboard).
+ * widgets sits on the right: turn-by-turn on top while there's a route, then Now Playing, the destination, the
+ * weather where there's room, and the player's own picture and the truck's status as they turn them on. Driving
+ * at 30 km/h or more with the screen left alone 30 s, the widgets slide away to the right and the map grows into
+ * their room; any use of the screen, or slowing below it, brings them back (owner 2026-11-03; a setting,
+ * Settings › Dashboard).
  */
 export function Dashboard() {
   // No widget to show (those turned on in Settings have nothing, and no route): the map has the whole width.
@@ -42,7 +44,10 @@ export function Dashboard() {
         <NowPlayingWidget />
         <DestinationWidget />
         <WeatherWidget />
+        <PhotoWidget />
+        <VehicleWidget />
       </div>
+      <WebAppLyrics />
     </section>
   )
 }

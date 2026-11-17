@@ -97,6 +97,10 @@ export interface Strings {
     typingWithKeyboard: string
     pausedWhileDriving: string
     selectToType: string
+    /** The Chinese input method: what it has composed, and its candidates. */
+    ime: string
+    imeBack: string
+    imeOn: string
   }
   /** Music. */
   nowPlaying: string
@@ -294,6 +298,8 @@ export interface Strings {
       song: string
       curator: string
       folder: string
+      /** A chart of the official lists (QQ Music's 官方歌单). */
+      top: string
     }
     /** "11 songs, 43 minutes" */
     length: (songs: number, seconds: number) => string
@@ -457,6 +463,8 @@ export interface Strings {
     /** Settings › Dashboard: the map filling it while driving, and what that is. */
     mapWhileDriving: string
     mapWhileDrivingFooter: string
+    /** The Dashboard's own picture widget (a wallpaper of the player's). */
+    photoWidget: string
     showAlbumArt: string
     /** Date & Time, and in it 24-Hour Time (off: 12-hour, with AM and PM). */
     dateTime: string
@@ -473,6 +481,29 @@ export interface Strings {
     high: string
     resetEqualizer: string
     back: string
+    displayPerformance: string
+    hz30: string
+    hz60: string
+    maps: string
+    performanceMode: string
+    performanceModeFooter: string
+    refreshRate: string
+    refreshRateFooter: string
+    trafficLights: string
+    trafficLightsFooter: string
+    zoomWithSpeed: string
+    zoomWithSpeedFooter: string
+    wallpaperRotation: string
+    wallpaperRotationNote: string
+    wallpapersByAppearance: string
+    wallpapersByAppearanceNote: string
+    wallpaperLight: string
+    wallpaperDark: string
+    spatial: string
+    spatialFooter: string
+    photoChoose: string
+    photoWidgetNote: string
+    photoFollow: string
   }
   /** Apps. */
   apps: Record<AppId, string>
@@ -556,6 +587,115 @@ export interface Strings {
     historyAndData: string
     clearData: string
   }
+
+  hoursOnly: (hours: number) => string
+  /** Turn-by-turn. */
+  jobLeft: (time: string) => string
+  /** The map's countdown to the forced rest: "距下一次强制休息还剩 28 小时" (§69). */
+  map2d: string
+  map3d: string
+  /** Maps' search: its button, and the field's hint. */
+  nearby: {
+    title: string
+    go: string
+    collapse: string
+    expand: string
+    reason: {
+      fuel: string
+      service: string
+      rest: string
+      company: string
+    }
+  }
+  /** The keyboard: its keys (named for screen readers where they show a symbol), and a field's clear button. */
+  restLeft: (time: string) => string
+  /** A whole number of hours on its own: "28 小时". */
+  reverseCamera: {
+    rear: string
+    roof: string
+    /** The game's own camera: the picture the engine draws, the `live` layout (§91). */
+    live: string
+    /** A trailer is hitched (the game named it or not). */
+    trailer: string
+    noTrailer: string
+    warning: string
+    settings: string
+    both: string
+    layoutRear: string
+    layoutRoof: string
+    layoutRearPip: string
+    layoutRoofPip: string
+  }
+  /** One line at a time over the rest countdown (RestTicker.tsx): the game's own figures, stepping every
+   * few seconds. Values arrive as numbers; the sentence does the rounding. */
+  ticker: {
+    fuel: (litres: number, rangeKm: number) => string
+  }
+
+  /** The arrival card (ArrivalCard.tsx): what's nearby worth stopping for, once the truck has arrived. */
+  vehicleApp: {
+    truck: string
+    trailer: string
+    /** "No trailer hitched". */
+    noTrailer: string
+    cargo: string
+    /** The truck's wear, part by part: the right column's title. */
+    condition: string
+    engine: string
+    transmission: string
+    cab: string
+    chassis: string
+    wheels: string
+    /** A part's damage: "12" → "12% worn" ("损伤 12%"). A part with none says `likeNew` instead. */
+    damage: (percent: string) => string
+    /** The Dashboard's Vehicle status widget: the truck's body's damage, and the trailer's when one is hitched,
+     * each as "车身：12%" ("Body: 12%"). Its heading is `condition` (车辆状态). */
+    body: (percent: string | null) => string
+    trailerDamage: (percent: string | null) => string
+    likeNew: string
+    cargoDamage: string
+    /** No telemetry yet: the game isn't running, or its plugin is older than this app. */
+    unavailable: string
+    /** The overview's own words: its title ("Vehicle overview", 车辆概览) over the status card. */
+    overview: string
+    /** The bar above it, as a car's trip computer is called ("Trip computer", 行车电脑). */
+    trip: string
+    /** Every part the game answered is undamaged ("All systems normal", 一切正常). */
+    allNormal: string
+    /** Some aren't: "3 to check" (3 项需要注意). */
+    faults: (count: number) => string
+    /** The truck's picture on the status card. */
+    truckDiagram: string
+    /** The row of readings under it, and the fuel card's: their names. */
+    fuel: string
+    /** How far the fuel left goes: "560 km to empty" (续航 560 km). */
+    fuelRange: (range: string) => string
+    airPressure: string
+    adblue: string
+    temperature: string
+    odometer: string
+    /** The rest card: its title, the countdown's, how long until the game forces a stop, and the note when its
+     * fatigue simulation is off. */
+    rest: string
+    restIn: string
+    restOff: string
+    /** The rest card's note under the countdown ("Time until rest", 休息时间). */
+    overall: string
+  }
+  /** The web app (a streaming site's own page, whole: Bilibili, QQ Music, NetEase Cloud Music, Qingting FM). */
+  webApp: {
+    /** The bar's buttons. */
+    back: string
+    home: string
+    reload: string
+    /** Under the site's name, until its page has a title (a new page, its title not yet). */
+    loading: string
+    /** The site's page, while it opens. */
+    opening: string
+    /** In a plain browser, where the site's page can't show (the game's WebView shows it). */
+    preview: string
+  }
+  /** The Settings app: its pages, rows and the words under them. */
 }
 
 const STRINGS: Record<string, Strings> = Object.fromEntries(

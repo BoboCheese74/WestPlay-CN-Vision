@@ -74,6 +74,9 @@ export const words: CompanionWords = {
     coachPassengersDetail: 'Koltukların üstündeki tüm hoparlörler',
     coachNote: 'Bu otobüsteki yolcu hoparlörleri: {n}, hepsi aynı anda. Zayıf bir işlemcide oyun takılabilir.',
     coachNoteAny: 'Otobüste yolcu hoparlörlerinin hepsi aynı anda ses verir. Zayıf bir işlemcide oyun takılabilir.',
+    display: 'Truck Screen',
+    displayFirst: 'WestPlay tablet',
+    displayFirstDetail: 'WestPlay fills the tablet first, even in a truck whose own screen shows it.',
     elevated: {
       title: 'Oyun yönetici olarak çalışıyor',
       text: 'Bu yüzden WestPlay oyunun rotasını, yol tarifini ve hava durumunu okuyamıyor. Oyunu yönetici olarak değil, normal şekilde başlat.',

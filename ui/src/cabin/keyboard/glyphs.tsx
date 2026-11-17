@@ -64,3 +64,16 @@ export function KeysGlyph() {
     </svg>
   )
 }
+
+/** The candidates' paging keys (the bar's right end): a chevron, back or on. */
+export function PageGlyph({ back = false }: { back?: boolean }) {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2.2">
+      <path
+        d={back ? 'M14.5 5.5 8 12l6.5 6.5' : 'M9.5 5.5 16 12l-6.5 6.5'}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
+}

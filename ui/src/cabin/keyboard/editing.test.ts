@@ -37,8 +37,10 @@ describe('keyRows', () => {
     expect(top(keyboardLanguage('ru_ru'))).toBe('йцукенгшщзхъ')
     expect(top(keyboardLanguage('sr_sp'))).toBe('qwertzuiopšđ')
     expect(top(keyboardLanguage('fi_fi'))).toBe('qwertyuiopå')
-    // Canada's French, Italian, Chinese: QWERTY.
-    for (const language of ['fr_ca', 'it_it', 'zh_cn', 'en_us']) expect(keyboardLanguage(language)).toBe('en')
+    // Canada's French and Italian type QWERTY; Chinese is the cabin's own pinyin input method.
+    for (const language of ['fr_ca', 'it_it', 'en_us']) expect(keyboardLanguage(language)).toBe('en')
+    expect(keyboardLanguage('zh_cn')).toBe('zh')
+    expect(keyboardLanguage('zh_tw')).toBe('zh')
     // No row wider than the top one: the keys take its width.
     for (const language of ['tr', 'de', 'fr', 'hu', 'et', 'hr', 'ru', 'uk', 'bg', 'mk', 'sr', 'ka', 'ko'] as const) {
       const rows = keyRows(language, 'letters')
@@ -78,10 +80,16 @@ describe('press', () => {
     const turkish = initialKeyboard('tr')
     const shift = { kind: 'shift' } as const
     expect(typed([shift, char('i'), shift, char('ı')], turkish).text).toBe('İI')
-    // The globe brings the other language's letters.
+    // The globe takes the keyboard round Chinese → English → Turkish: from Turkish it comes to Chinese, whose
+    // letters are plain QWERTY (a capital i is I, not Turkish İ).
     expect(typed([{ kind: 'globe' }, shift, char('i')], turkish)).toMatchObject({
       text: 'I',
-      state: { language: 'en' },
+      state: { language: 'zh' },
+    })
+    // And English comes first from Chinese, so the Turkish letters are two presses on.
+    expect(typed([{ kind: 'globe' }, { kind: 'globe' }, shift, char('i')], initialKeyboard('zh'))).toMatchObject({
+      text: 'İ',
+      state: { language: 'tr' },
     })
   })
 

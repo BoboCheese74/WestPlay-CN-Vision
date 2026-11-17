@@ -74,6 +74,9 @@ export const words: CompanionWords = {
     coachPassengersDetail: '좌석 위의 모든 스피커',
     coachNote: '이 버스의 객석 스피커: {n}개, 모두 동시에 울려요. 성능이 낮은 프로세서에서는 게임이 끊길 수 있어요.',
     coachNoteAny: '버스에서 객석 스피커는 모두 동시에 울려요. 성능이 낮은 프로세서에서는 게임이 끊길 수 있어요.',
+    display: 'Truck Screen',
+    displayFirst: 'WestPlay tablet',
+    displayFirstDetail: 'WestPlay fills the tablet first, even in a truck whose own screen shows it.',
     elevated: {
       title: '게임이 관리자 권한으로 실행 중이에요',
       text: '이 경우 WestPlay가 게임의 경로, 길 안내, 날씨를 읽을 수 없어요. 관리자 권한 없이 평소처럼 게임을 실행하세요.',

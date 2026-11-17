@@ -4,6 +4,7 @@ import { hvtMapMessage } from '../maps/blockedMap'
 import { GuidanceCard } from '../maps/GuidanceCard'
 import { DashboardMapControls, MapControls } from '../maps/MapControls'
 import { MapSearch } from '../maps/MapSearch'
+import { RestTicker } from './RestTicker'
 import { nextStop } from '../maps/nextStop'
 import { useMapData } from '../maps/mapData'
 import { RoadMap } from '../maps/RoadMap'
@@ -86,6 +87,7 @@ export function MapView({ interactive = false }: { interactive?: boolean }) {
               {speed > 0 && <div className={`speed-badge${limit > 0 && speed > limit ? ' over' : ''}`}>{speed}</div>}
             </div>
           </div>
+          <RestTicker />
           {interactive && <GuidanceCard variant="banner" />}
           {data && interactive && <MapControls />}
           {data && !interactive && <DashboardMapControls />}

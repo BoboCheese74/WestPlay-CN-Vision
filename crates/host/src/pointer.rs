@@ -23,6 +23,7 @@ use webview2_com::Microsoft::Web::WebView2::Win32::{
 };
 use westplay_shared::PointerBlock;
 use windows::Win32::Foundation::POINT;
+use windows::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_RCONTROL};
 
 use crate::cursor::Mouse;
 use crate::safari::Rect;
@@ -155,6 +156,13 @@ impl Pointer {
     /// Takes the pointer input the plugin collected since the last call and sends it to the page (or to the web
     /// page shown in it, where the mouse is over it: `web`); none while the game's parking camera covers the screen
     /// (`covered`). Returns the mouse as it is now, for the cursor drawn.
+    /// Whether the right Ctrl is held now: with the wheel it zooms the site's page (never the left one: that
+    /// is the game's, for the gearbox).
+    fn zoom_held() -> bool {
+        // SAFETY: a plain query, no pointers.
+        unsafe { GetAsyncKeyState(VK_RCONTROL.0 as i32) as u16 & 0x8000 != 0 }
+    }
+
     pub fn update(
         &mut self,
         block: &PointerBlock,
@@ -166,7 +174,7 @@ impl Pointer {
         let held = if active { block.buttons.load(Ordering::Acquire) } else { 0 };
         let (active, buttons) = self.uncovered(active, held, covered);
         // Taken whether or not the page gets them: the movement under the camera isn't the page's after it.
-        let input = Input {
+        let mut input = Input {
             active,
             dx: block.dx.swap(0, Ordering::AcqRel),
             dy: block.dy.swap(0, Ordering::AcqRel),
@@ -199,6 +207,22 @@ impl Pointer {
                         self.web_clicks = clicks_after(self.web_press, self.web_clicks, now, x, y);
                         self.web_press = Some((now, x, y));
                     }
+                    // A press goes WebView2's own way, and gives the page the focus: a page's own full-screen request
+                    // is refused from a WebView without it (`TypeError: not granted`; measured against 2.2.2, which
+                    // focused on every press and whose full-screen worked). Everything else — the wheel among it —
+                    // stays DevTools', which is what the sites' scrolling works with.
+                    if [LEFT_DOWN, RIGHT_DOWN, LEFT_UP, RIGHT_UP].contains(&kind) {
+                        if [LEFT_DOWN, RIGHT_DOWN].contains(&kind) {
+                            let _ = web.view.focus();
+                        }
+                        let at = POINT {
+                            x: (self.x - web.area.x).round() as i32,
+                            y: (self.y - web.area.y).round() as i32,
+                        };
+                        let _ = web.view.send_mouse(MOVE, keys, 0, at);
+                        let _ = web.view.send_mouse(kind, keys, data, at);
+                        continue;
+                    }
                     if let Some(event) = web_event(kind, data, x, y, self.buttons, self.web_clicks) {
                         let _ = web.view.devtools("Input.dispatchMouseEvent", &event);
                     } else if kind == COREWEBVIEW2_MOUSE_EVENT_KIND_LEAVE {
@@ -219,12 +243,20 @@ impl Pointer {
             (_, None) => Some(to_web),
             (_, held) => held,
         };
+        // The right Ctrl with the wheel over a site's page: the page's own pixels, larger or smaller,
+        // rather than its own scrolling — the app zooms it (webapp.rs).
+        let zoom = if input.wheel != 0 && self.active && to_web && Self::zoom_held() {
+            std::mem::take(&mut input.wheel)
+        } else {
+            0
+        };
         Mouse {
             active: self.active,
             x: self.x,
             y: self.y,
             pressed: self.buttons & PointerBlock::LEFT != 0,
             used: input.dx != 0 || input.dy != 0 || input.wheel != 0 || self.buttons != buttons,
+            zoom,
         }
     }
 
@@ -399,6 +431,9 @@ fn web_event(
 
 const LEFT_DOWN: COREWEBVIEW2_MOUSE_EVENT_KIND = COREWEBVIEW2_MOUSE_EVENT_KIND_LEFT_BUTTON_DOWN;
 const RIGHT_DOWN: COREWEBVIEW2_MOUSE_EVENT_KIND = COREWEBVIEW2_MOUSE_EVENT_KIND_RIGHT_BUTTON_DOWN;
+const LEFT_UP: COREWEBVIEW2_MOUSE_EVENT_KIND = COREWEBVIEW2_MOUSE_EVENT_KIND_LEFT_BUTTON_UP;
+const RIGHT_UP: COREWEBVIEW2_MOUSE_EVENT_KIND = COREWEBVIEW2_MOUSE_EVENT_KIND_RIGHT_BUTTON_UP;
+const MOVE: COREWEBVIEW2_MOUSE_EVENT_KIND = COREWEBVIEW2_MOUSE_EVENT_KIND_MOVE;
 
 #[cfg(test)]
 mod tests {

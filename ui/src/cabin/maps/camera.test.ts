@@ -9,7 +9,11 @@ import {
   damp,
   dampBearing,
   easeInOut,
+  followPitch,
+  followZoom,
+  PITCH,
   samePose,
+  STEADY_ZOOM,
   type TruckSample,
   truckAt,
   zoomForSpeed,
@@ -51,9 +55,26 @@ describe('truckAt', () => {
 describe('zoomForSpeed', () => {
   it('pulls out as speed rises, within bounds', () => {
     expect(zoomForSpeed(0)).toBe(17.2)
-    expect(zoomForSpeed(25)).toBeCloseTo(15.9)
+    // 90 km/h, the motorway's view: two levels out from town.
+    expect(zoomForSpeed(25)).toBeCloseTo(15.45)
     expect(zoomForSpeed(-5)).toBe(17.2)
+    // 110 km/h and over is as far out as it goes, and no further.
+    expect(zoomForSpeed(40)).toBe(15.2)
     expect(zoomForSpeed(10)).toBeLessThan(zoomForSpeed(5))
+  })
+})
+
+describe('followZoom', () => {
+  it('follows the speed, or one view for every speed when asked', () => {
+    expect(followZoom(0, 0, true)).toBe(17.2)
+    expect(followZoom(25, 0, true)).toBeCloseTo(15.45)
+    expect(followZoom(0, 0, false)).toBe(STEADY_ZOOM)
+    expect(followZoom(25, 0, false)).toBe(STEADY_ZOOM)
+  })
+
+  it("keeps the player's own zoom on top of either", () => {
+    expect(followZoom(0, 1.5, true)).toBeCloseTo(18.7)
+    expect(followZoom(25, -2, false)).toBe(STEADY_ZOOM - 2)
   })
 })
 
@@ -138,5 +159,15 @@ describe('zoomOffsetFor', () => {
     // No further than the camera may be pulled in or out.
     expect(zoomOffsetFor(30, 0)).toBe(2)
     expect(zoomOffsetFor(5, 0)).toBe(-4)
+  })
+})
+
+describe('followPitch', () => {
+  it('tilts behind the truck, and looks straight down flat or north up', () => {
+    expect(followPitch(false, false)).toBe(PITCH)
+    expect(PITCH).toBeGreaterThan(0)
+    expect(followPitch(false, true)).toBe(0)
+    expect(followPitch(true, false)).toBe(0)
+    expect(followPitch(true, true)).toBe(0)
   })
 })

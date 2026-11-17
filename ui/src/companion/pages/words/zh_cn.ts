@@ -73,6 +73,9 @@ export const words: CompanionWords = {
     coachPassengersDetail: '座位上方的全部扬声器',
     coachNote: '这辆大巴的乘客扬声器：{n} 个，全部同时播放。处理器较弱时，游戏可能会卡顿。',
     coachNoteAny: '在大巴中，乘客扬声器全部同时播放。处理器较弱时，游戏可能会卡顿。',
+    display: '屏幕显示',
+    displayFirst: '优先显示在平板',
+    displayFirstDetail: 'WestPlay 优先显示在平板上，即使卡车自己的屏幕也显示它。',
     elevated: {
       title: '游戏正以管理员身份运行',
       text: '这样 WestPlay 无法读取游戏的路线、导航和天气。请正常启动游戏，不要以管理员身份运行。',

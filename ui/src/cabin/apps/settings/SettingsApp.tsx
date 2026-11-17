@@ -5,6 +5,7 @@ import { smoothThrough } from './curve'
 import { useWallpapers } from '../../state/looks'
 import { pickVariant, prepareWallpaper } from '../../wallpapers'
 import { type Appearance, resolveAppearance } from '../../state/appearance'
+import { REFRESH_RATES } from '../../state/refreshRate'
 import { useAppIcon, useLook, useScreenProfile } from '../../state/hooks'
 import { engineName, SEARCH_ENGINES } from '../safari/address'
 import {
@@ -21,17 +22,7 @@ import { timeframeName } from '../safari/SafariApp'
 import { DASHBOARD_WIDGETS, type DashboardWidget, useCabin, useLive } from '../../state/store'
 import { useText } from '../../state/text'
 import { TEXT_SIZES } from '../../state/textSize'
-import {
-  AppearanceGlyph,
-  CheckGlyph,
-  ChevronGlyph,
-  ClockGlyph,
-  DashboardGlyph,
-  NowPlayingGlyph,
-  SoundGlyph,
-  SunGlyph,
-  WallpaperGlyph,
-} from './glyphs'
+import { AppearanceGlyph, CheckGlyph, ChevronGlyph, ClockGlyph, DashboardGlyph, DisplayGlyph, MapGlyph, NowPlayingGlyph, SoundGlyph, SunGlyph, WallpaperGlyph } from './glyphs'
 import { type SettingsPage, useSettings } from './settings'
 import './settings.css'
 import { cabClock, EQUALIZER_BANDS, EQUALIZER_MOST, type Equalizer, isInHost, postToHost } from '../../../shared/host'
@@ -67,8 +58,12 @@ function PageContent({ page }: { page: SettingsPage }) {
       return <AppearancePage />
     case 'wallpaper':
       return <WallpaperPage />
+    case 'display':
+      return <DisplayPage />
     case 'dashboard':
       return <DashboardPage />
+    case 'maps':
+      return <MapsPage />
     case 'nowPlaying':
       return <NowPlayingPage />
     case 'sound':
@@ -118,6 +113,13 @@ function ListPage() {
           label={text.settings.wallpaper}
           onOpen={() => open('wallpaper')}
         />
+        {/* Below Appearance and Wallpaper: the screen's own rate, and what it gives up to run lighter. */}
+        <NavRow
+          tile="var(--apple-purple)"
+          icon={<DisplayGlyph />}
+          label={text.settings.displayPerformance}
+          onOpen={() => open('display')}
+        />
       </Group>
       <Group>
         <NavRow
@@ -131,6 +133,13 @@ function ListPage() {
           icon={<NowPlayingGlyph />}
           label={text.nowPlaying}
           onOpen={() => open('nowPlaying')}
+        />
+        {/* The map's own: the traffic lights and the camera that follows the truck's speed. */}
+        <NavRow
+          tile="var(--apple-green)"
+          icon={<MapGlyph />}
+          label={text.settings.maps}
+          onOpen={() => open('maps')}
         />
       </Group>
       <Group>
@@ -452,24 +461,56 @@ function WallpaperPage() {
   const setWallpaper = useCabin((state) => state.setWallpaper)
   const wallpapers = useWallpapers()
   const { appearance } = useLook()
+  const rotate = useCabin((state) => state.rotateWallpaper)
+  const setRotate = useCabin((state) => state.setRotateWallpaper)
+  const pair = useCabin((state) => state.wallpapersByAppearance)
+  const setPair = useCabin((state) => state.setWallpapersByAppearance)
+  const light = useCabin((state) => state.wallpaperLight)
+  const dark = useCabin((state) => state.wallpaperDark)
+  const setFor = useCabin((state) => state.setWallpaperFor)
   return (
     <Page title={text.settings.wallpaper}>
-      <Group>
-        <div className="wallpaper-choices">
-          {wallpapers.map((wallpaper) => (
-            <button
-              key={wallpaper.id}
-              type="button"
-              className="wallpaper-choice"
-              aria-pressed={wallpaper.id === wallpaperId}
-              onClick={() => setWallpaper(wallpaper.id)}
-            >
-              <WallpaperThumbnail src={pickVariant(wallpaper, appearance).src} />
-              <span className="wallpaper-name">{wallpaper.name}</span>
-            </button>
-          ))}
-        </div>
+      {/* Above the wallpapers, as a choice of its own (owner 2026-10-30). The two switches are exclusive: the
+          store switches one off when the other comes on. */}
+      <Group footer={text.settings.wallpaperRotationNote}>
+        <SwitchRow label={text.settings.wallpaperRotation} on={rotate} onToggle={setRotate} />
       </Group>
+      <Group footer={text.settings.wallpapersByAppearanceNote}>
+        <SwitchRow label={text.settings.wallpapersByAppearance} on={pair} onToggle={setPair} />
+      </Group>
+      {pair ? (
+        <>
+          <WallpaperChoices
+            header={text.settings.wallpaperLight}
+            look="light"
+            chosen={light}
+            onChoose={(id) => setFor('light', id)}
+          />
+          <WallpaperChoices
+            header={text.settings.wallpaperDark}
+            look="dark"
+            chosen={dark}
+            onChoose={(id) => setFor('dark', id)}
+          />
+        </>
+      ) : (
+        <Group>
+          <div className="wallpaper-choices">
+            {wallpapers.map((wallpaper) => (
+              <button
+                key={wallpaper.id}
+                type="button"
+                className="wallpaper-choice"
+                aria-pressed={wallpaper.id === wallpaperId}
+                onClick={() => setWallpaper(wallpaper.id)}
+              >
+                <WallpaperThumbnail src={pickVariant(wallpaper, appearance).src} />
+                <span className="wallpaper-name">{wallpaper.name}</span>
+              </button>
+            ))}
+          </div>
+        </Group>
+      )}
     </Page>
   )
 }
@@ -503,12 +544,18 @@ function DashboardPage() {
   const text = useText()
   const widgets = useCabin((state) => state.dashboardWidgets)
   const setWidget = useCabin((state) => state.setDashboardWidget)
+  const photo = useCabin((state) => state.dashboardPhoto)
+  const setPhoto = useCabin((state) => state.setDashboardPhoto)
+  const wallpapers = useWallpapers()
+  const { appearance } = useLook()
   const mapGrows = useCabin((state) => state.mapGrows)
   const setMapGrows = useCabin((state) => state.setMapGrows)
   const names: Record<DashboardWidget, string> = {
     nowPlaying: text.nowPlaying,
     destination: text.destination,
     weather: text.apps.weather,
+    photo: text.settings.photoWidget,
+    vehicle: text.vehicleApp.condition,
   }
   return (
     <Page title={text.settings.dashboard}>
@@ -517,6 +564,30 @@ function DashboardPage() {
           <SwitchRow key={widget} label={names[widget]} on={widgets[widget]} onToggle={(on) => setWidget(widget, on)} />
         ))}
       </Group>
+      {/* The photo widget's picture: the gallery's own wallpapers, or the one on screen (owner 2026-11-03: it
+          picks from the wallpaper gallery once the widget is on). */}
+      {widgets.photo && (
+        <Group header={text.settings.photoChoose} footer={text.settings.photoWidgetNote}>
+          <div className="wallpaper-choices">
+            <button type="button" className="wallpaper-choice" aria-pressed={photo === ''} onClick={() => setPhoto('')}>
+              <span className="wallpaper-thumbnail-empty photo-follow">{text.settings.photoFollow}</span>
+              <span className="wallpaper-name">{text.settings.wallpaper}</span>
+            </button>
+            {wallpapers.map((wallpaper) => (
+              <button
+                key={wallpaper.id}
+                type="button"
+                className="wallpaper-choice"
+                aria-pressed={wallpaper.id === photo}
+                onClick={() => setPhoto(wallpaper.id)}
+              >
+                <WallpaperThumbnail src={pickVariant(wallpaper, appearance).src} />
+                <span className="wallpaper-name">{wallpaper.name}</span>
+              </button>
+            ))}
+          </div>
+        </Group>
+      )}
       <Group footer={text.settings.mapWhileDrivingFooter}>
         <SwitchRow label={text.settings.mapWhileDriving} on={mapGrows} onToggle={setMapGrows} />
       </Group>
@@ -543,8 +614,14 @@ function SoundPage() {
   const text = useText()
   const open = useSettings((state) => state.open)
   const custom = useCabin((state) => state.equalizerCustom)
+  const spatial = useCabin((state) => state.spatial)
+  const setSpatial = useCabin((state) => state.setSpatial)
   return (
     <Page title={text.settings.sound}>
+      {/* The truck's own speakers, placed in its cab: off, the sound plays as it is (Settings › Sound). */}
+      <Group footer={text.settings.spatialFooter}>
+        <SwitchRow label={text.settings.spatial} on={spatial} onToggle={setSpatial} />
+      </Group>
       <Group>
         <NavRow
           label={text.settings.equalizer}
@@ -869,5 +946,95 @@ function SwitchRow({ on, onToggle, ...start }: RowLabel & { on: boolean; onToggl
         <span className="apple-switch-thumb" />
       </span>
     </button>
+  )
+}
+
+/**
+ * Display & Performance (owner 2026-11-01): the two settings about what the screen costs. The refresh rate is
+ * how often WestPlay hands the game a new frame (the host publishes at it, and the map is drawn at it); the
+ * Performance Mode is what the page gives up for a lesser machine — the map's 3D buildings, the frosted glass
+ * and the animations (cabin/performance.css).
+ */
+
+function DisplayPage() {
+  const text = useText()
+  const refreshRate = useCabin((state) => state.refreshRate)
+  const chooseRefreshRate = useCabin((state) => state.chooseRefreshRate)
+  const performance = useCabin((state) => state.performanceMode)
+  const choosePerformance = useCabin((state) => state.choosePerformanceMode)
+  return (
+    <Page title={text.settings.displayPerformance}>
+      <Group footer={text.settings.refreshRateFooter}>
+        <div className="refresh-rate-row">
+          <span className="settings-label">{text.settings.refreshRate}</span>
+          <div className="refresh-rate-choices" role="group" aria-label={text.settings.refreshRate}>
+            {REFRESH_RATES.map((rate) => (
+              <button
+                key={rate}
+                type="button"
+                className={rate === refreshRate ? 'refresh-rate-choice on' : 'refresh-rate-choice'}
+                aria-pressed={rate === refreshRate}
+                onClick={() => chooseRefreshRate(rate)}
+              >
+                {rate === '60' ? text.settings.hz60 : text.settings.hz30}
+              </button>
+            ))}
+          </div>
+        </div>
+      </Group>
+      <Group footer={text.settings.performanceModeFooter}>
+        <SwitchRow label={text.settings.performanceMode} on={performance} onToggle={choosePerformance} />
+      </Group>
+    </Page>
+  )
+}
+
+export function WallpaperChoices({
+  header,
+  look,
+  chosen,
+  onChoose,
+}: {
+  header: string
+  look: Appearance
+  chosen: string
+  onChoose: (id: string) => void
+}) {
+  const wallpapers = useWallpapers()
+  return (
+    <Group header={header}>
+      <div className="wallpaper-choices">
+        {wallpapers.map((wallpaper) => (
+          <button
+            key={wallpaper.id}
+            type="button"
+            className="wallpaper-choice"
+            aria-pressed={wallpaper.id === chosen}
+            onClick={() => onChoose(wallpaper.id)}
+          >
+            <WallpaperThumbnail src={pickVariant(wallpaper, look).src} />
+            <span className="wallpaper-name">{wallpaper.name}</span>
+          </button>
+        ))}
+      </div>
+    </Group>
+  )
+}
+
+function MapsPage() {
+  const text = useText()
+  const trafficLights = useCabin((state) => state.trafficLights)
+  const setTrafficLights = useCabin((state) => state.setTrafficLights)
+  const withSpeed = useCabin((state) => state.zoomWithSpeed)
+  const setWithSpeed = useCabin((state) => state.setZoomWithSpeed)
+  return (
+    <Page title={text.settings.maps}>
+      <Group footer={text.settings.trafficLightsFooter}>
+        <SwitchRow label={text.settings.trafficLights} on={trafficLights} onToggle={setTrafficLights} />
+      </Group>
+      <Group footer={text.settings.zoomWithSpeedFooter}>
+        <SwitchRow label={text.settings.zoomWithSpeed} on={withSpeed} onToggle={setWithSpeed} />
+      </Group>
+    </Page>
   )
 }
