@@ -97,7 +97,13 @@ export function Keyboard() {
   useCover(panel, field !== null)
 
   return (
-    <div ref={panel} className={`keyboard ${keys.layer}${field ? ' shown' : ''}`} style={style} aria-hidden={!field} inert={!field}>
+    <div
+      ref={panel}
+      className={`keyboard glass ${keys.layer}${field ? ' shown' : ''}`}
+      style={style}
+      aria-hidden={!field}
+      inert={!field}
+    >
       {chip && (
         <div className={physical === 'typing' ? 'keyboard-chip typing' : 'keyboard-chip'} role="status">
           <KeysGlyph />

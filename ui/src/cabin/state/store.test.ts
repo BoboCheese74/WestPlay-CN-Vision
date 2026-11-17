@@ -57,7 +57,17 @@ describe('the saved Settings choices', () => {
     expect(useCabin.getState().albumArt).toBe(true)
   })
 
-  it('take each widget’s own default when nothing was saved (an earlier WestPlay)', async () => {
+  it('keep Reduce Transparency as it was, off when it wasn’t saved or isn’t a choice', async () => {
+    vi.stubGlobal('localStorage', savedStorage({ reduceTransparency: true }))
+    const { useCabin } = await import('./store')
+    expect(useCabin.getState().reduceTransparency).toBe(true)
+    vi.resetModules()
+    vi.stubGlobal('localStorage', savedStorage({ reduceTransparency: 'yes' }))
+    const again = await import('./store')
+    expect(again.useCabin.getState().reduceTransparency).toBe(false)
+  })
+
+  it('are all on when nothing was saved (an earlier WestPlay)', async () => {
     vi.stubGlobal('localStorage', savedStorage({ appearanceMode: 'dark' }))
     const { useCabin } = await import('./store')
     // The three the Dashboard had, on; the picture and the truck's status are the player's to turn on.

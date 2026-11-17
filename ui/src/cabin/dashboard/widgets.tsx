@@ -261,15 +261,8 @@ function MusicWidget({
   const ink = useWordsOver(cover, useLook().appearance, WIDGET_BACKDROPS)
 
   return (
-    <article className={`widget glass now-playing ${wordsClass(ink)}`}>
-      {/* No Referer: a site's cover CDN can refuse it (Bilibili's i0.hdslb.com answers 403 to every referer but
-          its own, and this page's is westplay.cabin), where the same picture without one is served. The covers
-          are the sites' own, so none of them wants this page's address. */}
-      <Crossfade
-        value={cover}
-        className="np-tint"
-        render={(url) => url && <img src={url} alt="" aria-hidden referrerPolicy="no-referrer" />}
-      />
+    <article className={`widget glass lg-system now-playing ${wordsClass(ink)}`}>
+      <Crossfade value={cover} className="np-tint" render={(url) => url && <img src={url} alt="" aria-hidden />} />
       <button type="button" className="np-top" onClick={onOpen} disabled={!onOpen}>
         <Crossfade
           value={cover}
@@ -357,7 +350,7 @@ export function DestinationWidget() {
   return (
     <div className={`widget-slot${shown ? ' open' : ''}`}>
       {shown && (
-        <article className="widget glass job">
+        <article className="widget glass lg-system job">
           <div className="kicker">{view.kicker}</div>
           <div className="destination">{view.title}</div>
           {view.subtitle && <div className="place">{view.subtitle}</div>}
@@ -486,7 +479,10 @@ export function WeatherWidget() {
   return (
     <div className={`widget-slot${room && view ? ' open' : ''}`}>
       {view && (
-        <article className="widget glass weather" aria-label={[view.place, view.condition].filter(Boolean).join(', ')}>
+        <article
+          className="widget glass lg-system weather"
+          aria-label={[view.place, view.condition].filter(Boolean).join(', ')}
+        >
           <div className="weather-text">
             {view.place && <div className="place">{view.place}</div>}
             <div className="condition">{view.condition}</div>
