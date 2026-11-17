@@ -93,6 +93,27 @@ describe('quietWhileReversing', () => {
     settle()
     expect(quiet.volume).toBeCloseTo(0.1, 6)
   })
+  it('never turns a quiet player up: 5% and 10% stay where they are', () => {
+    // Owner 2026-11-18: holding a page at 15% whatever it was made a song turned down to 5% come up as
+    // the truck reversed, and drop back on the way out (the volume jumping both ways).
+    const low = player('low', 0.05)
+    const ten = player('ten', 0.1)
+    stop = quietWhileReversing([low.one, ten.one])
+    gear(-1)
+    settle()
+    expect(low.volume).toBeCloseTo(0.05, 6)
+    expect(ten.volume).toBeCloseTo(0.1, 6)
+    // Not even told to duck: the page's own volume is already under the cab's level.
+    expect(low.ducks).toEqual([])
+    expect(ten.ducks).toEqual([])
+    gear(1)
+    settle()
+    expect(low.volume).toBeCloseTo(0.05, 6)
+    expect(ten.volume).toBeCloseTo(0.1, 6)
+    expect(low.ducks).toEqual([])
+    expect(ten.ducks).toEqual([])
+  })
+
 
   it('touches the players once per gear, whatever the telemetry says meanwhile', () => {
     const music = player('music', 0.6)

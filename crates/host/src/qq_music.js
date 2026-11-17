@@ -864,6 +864,7 @@
 
   const CDN = 'https://isure.stream.qqmusic.qq.com/'
 
+
   const player = {
     // How many songs in a row had no stream (a paying one): reset by anything the player itself
     // does, so a queue of them doesn't spin for ever.
@@ -885,11 +886,24 @@
     token: 0,
   }
 
+  // The truck's own speakers (`cab_sound.js`, loaded before this script): its sound split to the cab's
+  // speakers, each heard from where it sits. Where there's no cab to play it (a page loaded without the
+  // script), the songs play as they are.
+  let throughCab = false
+  let headReady = false
+  let cabGaveUp = false
+  const sound = window.westplayCabSound?.(() => (throughCab && headReady ? player?.audio : null), post)
+  if (sound) window.setInterval(() => sound.tick?.(), 250)
+
   const audio = () => {
     if (!player.audio) {
       const el = document.createElement('audio')
       el.preload = 'auto'
       el.volume = player.volume
+      // Taken into the browser's own graph for the cab (`cab_sound.js`): a cross-origin element without
+      // this plays silently there. QQ's media hosts send `Access-Control-Allow-Origin: *` (checked), so
+      // they allow it; a song whose host doesn't is given up for the cab alone (`checkAudible`).
+      if (sound && !cabGaveUp) el.crossOrigin = 'anonymous'
       document.body.appendChild(el)
       player.audio = el
       el.addEventListener('loadedmetadata', tellPlayback)
@@ -910,6 +924,73 @@
   }
 
   const currentMid = () => player.queue[player.index] ?? null
+
+  /** Whether this song may be taken into the cab's graph: a cab there, not given up, and the head known. */
+  const takeIntoCab = () => {
+    throughCab = Boolean(sound) && !cabGaveUp && headReady
+  }
+
+  /** How loud the cab's speakers play now in each ear (none: nothing was taken into it). */
+  const cabIsQuiet = () => {
+    const levels = sound?.level?.()
+    if (levels === undefined || levels === null) return true
+    return Array.isArray(levels) ? levels.every((value) => !value) : false
+  }
+
+  /**
+   * A song a couple of seconds in: one taken into the cab but with nothing coming out of it (a host that
+   * refuses the browser's permission, a graph that couldn't be made) is given up for that song alone —
+   * plainly heard beats not heard — and it plays as it is instead. `cab_sound.js` says how loud each ear
+   * is (`level()`): silence twice, with the song really running, is the sign.
+   */
+  const checkAudible = () => {
+    const element = player.audio
+    if (!sound || !throughCab || !headReady || !element || element.paused || element.error) return
+    const first = { at: element.currentTime, quiet: cabIsQuiet() }
+    window.setTimeout(() => {
+      if (player.audio !== element || element.paused || element.error) return
+      const second = { at: element.currentTime, quiet: cabIsQuiet() }
+      post({
+        qqProbe:
+          'PROBE cab levels ' +
+          String(sound?.level?.()) +
+          ' at ' +
+          first.at.toFixed(1) +
+          's, then ' +
+          String(sound?.level?.()) +
+          ' at ' +
+          second.at.toFixed(1) +
+          's',
+      })
+      // Time moving and silence both times: not a quiet passage, and not a stall.
+      if (!first.quiet || !second.quiet || second.at - first.at < 0.4) return
+      post({ qqProbe: 'PROBE the cab plays nothing at all; playing as it is' })
+      cabGaveUp = true
+      throughCab = false
+      const at = second.at
+      const src = element.currentSrc || element.src
+      try {
+        element.pause()
+      } catch {}
+      player.audio = null
+      try {
+        element.remove()
+      } catch {}
+      if (!src) return
+      const el = audio()
+      el.addEventListener(
+        'loadedmetadata',
+        () => {
+          try {
+            el.currentTime = Math.max(0, at)
+          } catch {}
+          el.play().catch(() => {})
+        },
+        { once: true },
+      )
+      el.src = src
+    }, 1100)
+  }
 
   const tellPlayback = () => {
     const el = player.audio
@@ -1051,6 +1132,9 @@
       const [meta, url] = await Promise.all([metaOf(mid), streamOf(mid)])
       if (token !== player.token) return // superseded by a newer play/skip
       player.track = meta
+      // The cab takes the song once the host has said where the driver's head is; until then it plays as
+      // it is (and neither does one whose host refused the browser's permission).
+      takeIntoCab()
       const el = audio()
       // Paused before the source changes: handing a new address to an element that's playing makes it
       // jump (a click in the sound) before the new one starts.
@@ -1060,6 +1144,7 @@
       if (autoplay) {
         try {
           await el.play()
+          checkAudible()
         } catch (error) {
           post({ qqProbe: 'PROBE audio.play() FAILED: ' + (error && (error.name + ': ' + error.message)) })
           player.loading = false
@@ -1196,6 +1281,18 @@
     add: () => {},
   }
 
+  /** The cab's words (`cab_sound.js`): the speakers, the head, the camera and the tone. */
+  const CAB = {
+    speakers: (data) => sound?.speakers(data.speakers),
+    head: (data) => {
+      headReady = true
+      sound?.head(data)
+    },
+    outside: (data) => sound?.outside(data.on, data.distance),
+    equalizer: (data) => sound?.equalizer(data),
+    spectrum: (data) => sound?.spectrum(data.on),
+  }
+
   window.chrome?.webview?.addEventListener('message', ({ data }) => {
     if (data?.action === 'credential') {
       savedCookie = typeof data.cookies === 'string' ? data.cookies : ''
@@ -1205,8 +1302,9 @@
       post({ signedIn: savedCred != null || savedCookie !== '', playing: false, avatar: null })
       return
     }
-    post({ qqProbe: 'PROBE got action: ' + String(data?.action) })
-    if (data?.action === 'ask') answer(data.id, data.question)
+    // The cab's own first: its words aren't the app's commands.
+    if (CAB[data?.action]) CAB[data.action](data)
+    else if (data?.action === 'ask') answer(data.id, data.question)
     else
       Promise.resolve(CONTROLS[data?.action]?.(data)).catch((error) => {
         // Said, so a control that fails isn't just nothing happening (the app showed the same

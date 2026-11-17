@@ -2162,7 +2162,10 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
             if let Some(player) = &spotify {
                 let _ = player.cab(truck_speakers, head, outside, distance, equalizer, spectrum);
             }
-            // The web app's site (QQ Music, NetEase Cloud Music, Bilibili, Qingting FM): its sound through the
+            if let Some(player) = &qq_music {
+                let _ = player.cab(truck_speakers, head, outside, distance, equalizer, spectrum);
+            }
+            // The web app's site (NetEase Cloud Music, Bilibili, Qingting FM): its sound through the
             // truck's own speakers too, where the page's stream is one the browser lets out that way (webapp.rs).
             if let Some(player) = &webapp {
                 let _ = player.cab(truck_speakers, head, outside, distance, equalizer, spectrum);

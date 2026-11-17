@@ -327,7 +327,7 @@ impl Default for Keybinds {
 impl Keybinds {
     /// Each keybind as the bridge carries it ([`westplay_shared::keybind_value`]), in [`Keybind::ALL`]'s order.
     pub fn bridge_values(&self) -> [u32; KEYBIND_COUNT] {
-        Keybind::ALL.map(|keybind| {
+        let values = Keybind::ALL.map(|keybind| {
             let binding = match keybind {
                 Keybind::VolumeUp => self.volume_up,
                 Keybind::VolumeDown => self.volume_down,
@@ -336,7 +336,10 @@ impl Keybinds {
                 Keybind::BrightnessUp => self.brightness_up,
             };
             keybind_value(binding.key.virtual_key(), binding.with_interaction_key)
-        })
+        });
+        // A key an earlier bind has already takes (a player's own Alt+4 for a volume key, from before the
+        // brightness keys) leaves this one unbound: one key, one action (upstream's rule).
+        std::array::from_fn(|i| if values[..i].contains(&values[i]) { 0 } else { values[i] })
     }
 }
 
@@ -595,12 +598,13 @@ mod tests {
                 equalizer: crate::speakers::Equalizer { bass: -3, mid: 1, treble: 2 },
                 custom: true,
                 spatial: false,
+                coach: CoachSpeakers::Driver,
             },
             map: MapSettings { buildings: false, roads: false, fast: true },
             language: LanguageCode::new("pt_br"),
         };
         let json = to_json(&settings);
-        assert!(json.contains("\"coach\": \"passengers\""), "{json}");
+        assert!(json.contains("\"coach\": \"driver\""), "{json}");
         assert!(json.contains("\"version\": 2"), "{json}");
         assert!(json.contains("\"key\": 5"), "{json}");
         assert!(json.contains("\"mode\": \"toggle\""), "{json}");

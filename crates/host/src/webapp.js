@@ -881,8 +881,12 @@
     } else {
       ducked.level = clean
     }
-    holdVolume(clean, HOLD_MS)
-    post({ volume: clean })
+    // Only ever quieter: a page already under the cab's level (the player turned it down to 5% or 10%)
+    // stays where it is. Holding it *at* 15% instead turned a quiet song up as the truck reversed, and
+    // back down on the way out (owner 2026-11-18: "倒车时音量忽大忽小").
+    const held = Math.min(clean, ducked.before)
+    holdVolume(held, HOLD_MS)
+    post({ volume: held })
   }
   /** The page's sound at `level` (0: silent), kept for the next page too where the cabin asked for it. A page
    * whose player keeps its own volume (Bilibili's, Douyin's) is left alone, whatever the cabin asks — except
