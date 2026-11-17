@@ -7,7 +7,7 @@ import { followRound } from './mapRound'
 export interface HostStatus {
   mobileWebUi?:
     | { state: 'off' }
-    | { state: 'running'; pairingUrls: string[] }
+    | { state: 'running'; pairingUrl: string | null }
     | { state: 'error'; message: string }
   webviewVersion: string
   adapter: string | null

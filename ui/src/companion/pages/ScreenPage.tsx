@@ -1,4 +1,3 @@
-import { useState } from 'react'
 import { GAME_KINDS, GAME_NAMES } from '../setup'
 import { setWestplayOpen } from '../useHostStatus'
 import { Group, Note, Panel, Row, Status, Switch, Tick } from '../room/parts'
@@ -95,66 +94,10 @@ export function ScreenPage({ status, settings, setup, cw }: PageProps) {
         </Note>
       )}
       <DisplayFirst settings={settings} cw={cw} />
-      <MobileWebUi status={status} settings={settings} cw={cw} />
       <CoachChooser status={status} settings={settings} cw={cw} />
       <GpuChooser status={status} settings={settings} cw={cw} />
       {status?.error && <Note tone="bad">{status.error}</Note>}
     </Panel>
-  )
-}
-
-function MobileWebUi({ status, settings: state, cw }: Pick<PageProps, 'status' | 'settings' | 'cw'>) {
-  const { settings, update, error } = state
-  const w = cw.screen.mobileWebUi
-  const [copiedUrl, setCopiedUrl] = useState('')
-  const [copyFailedUrl, setCopyFailedUrl] = useState('')
-  if (!settings) return null
-  const enabled = settings.mobileWebUi
-  const service = status?.mobileWebUi
-  const running = enabled && service?.state === 'running'
-  const urls = running ? service.pairingUrls : []
-  const busy = enabled && (!service || service.state === 'off')
-  return (
-    <Group place={9}>
-      <Row
-        title={w.title}
-        detail={w.detail}
-        wrap
-        accessory={<Switch on={enabled} label={w.title} change={(on) => void update({ ...settings, mobileWebUi: on })} />}
-      />
-      {busy && <Note>{w.starting}</Note>}
-      {enabled && service?.state === 'error' && (
-        <Note tone="bad">
-          {w.unavailable} {service.message}
-        </Note>
-      )}
-      {running && urls.length === 0 && <Note>{w.noAddress}</Note>}
-      {urls.map((url) => (
-        <div key={url}>
-          <Row
-            title={new URL(url).origin}
-            detail={copiedUrl === url ? w.copied : w.copy}
-            onClick={() => {
-              setCopyFailedUrl('')
-              navigator.clipboard.writeText(url).then(
-                () => setCopiedUrl(url),
-                () => setCopyFailedUrl(url),
-              )
-            }}
-          />
-          {copyFailedUrl === url && (
-            <input
-              aria-label={w.link}
-              readOnly
-              value={url}
-              onFocus={(event) => event.target.select()}
-            />
-          )}
-        </div>
-      ))}
-      {urls.length > 0 && <Note>{w.keepPrivate}</Note>}
-      {error && <Note tone="bad">{error}</Note>}
-    </Group>
   )
 }
 

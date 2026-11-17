@@ -92,7 +92,7 @@ pub enum Content {
 pub enum MobileWebUiStatus {
     #[default]
     Off,
-    Running { pairing_urls: Vec<String> },
+    Running { pairing_url: Option<String> },
     Error { message: String },
 }
 
@@ -935,9 +935,9 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
                 status.mobile_web_ui = if enabled {
                     match lan::Lan::start(config.width, config.height) {
                         Ok(server) => {
-                            let pairing_urls = server.pairing_urls();
+                            let pairing_url = server.pairing_url();
                             lan = Some(server);
-                            MobileWebUiStatus::Running { pairing_urls }
+                            MobileWebUiStatus::Running { pairing_url }
                         }
                         Err(error) => MobileWebUiStatus::Error { message: error.to_string() },
                     }

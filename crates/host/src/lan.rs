@@ -3,7 +3,7 @@
 
 use std::cell::Cell;
 use std::io::{self, Read, Write};
-use std::net::{IpAddr, Ipv4Addr, Shutdown, SocketAddrV4, TcpListener, TcpStream};
+use std::net::{IpAddr, Ipv4Addr, Shutdown, SocketAddrV4, TcpListener, TcpStream, UdpSocket};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc::{self, Receiver, SyncSender};
 use std::sync::{Arc, Condvar, Mutex};
@@ -178,8 +178,8 @@ impl Lan {
             && self.listener_thread.as_ref().is_some_and(|worker| !worker.is_finished())
     }
 
-    pub fn pairing_urls(&self) -> Vec<String> {
-        lan_addresses().into_iter().map(|ip| format!("http://{ip}:{}/?token={}", self.port, self.token)).collect()
+    pub fn pairing_url(&self) -> Option<String> {
+        lan_address().map(|ip| format!("http://{ip}:{}/?token={}", self.port, self.token))
     }
 
     pub fn shared(&self) -> Arc<Shared> {
@@ -210,8 +210,9 @@ impl Drop for Lan {
     }
 }
 
-/// List private IPv4s even if the PC is on an isolated LAN with no default route.
-fn lan_addresses() -> Vec<Ipv4Addr> {
+/// Prefer the private IPv4 Windows uses on its default route. A directly connected LAN
+/// can still work without a gateway, so keep an active private address as a fallback.
+fn lan_address() -> Option<Ipv4Addr> {
     use windows::Win32::Foundation::ERROR_INSUFFICIENT_BUFFER;
     use windows::Win32::NetworkManagement::IpHelper::{
         GetIpAddrTable, MIB_IPADDR_DISCONNECTED, MIB_IPADDRROW_XP, MIB_IPADDRTABLE,
@@ -220,13 +221,13 @@ fn lan_addresses() -> Vec<Ipv4Addr> {
     let mut size = 0;
     // SAFETY: A null table asks Windows for the buffer size.
     if unsafe { GetIpAddrTable(None, &mut size, false) } != ERROR_INSUFFICIENT_BUFFER.0 || size < 4 {
-        return Vec::new();
+        return None;
     }
     let mut words = vec![0u32; (size as usize).div_ceil(size_of::<u32>())];
     let table = words.as_mut_ptr().cast::<MIB_IPADDRTABLE>();
     // SAFETY: The zeroed, aligned buffer is at least size bytes; Windows writes the number and rows on success.
     if unsafe { GetIpAddrTable(Some(table), &mut size, false) } != 0 {
-        return Vec::new();
+        return None;
     }
     let offset = std::mem::offset_of!(MIB_IPADDRTABLE, table);
     let count = (words[0] as usize).min((words.len() * size_of::<u32>() - offset) / size_of::<MIB_IPADDRROW_XP>());
@@ -234,15 +235,16 @@ fn lan_addresses() -> Vec<Ipv4Addr> {
     let rows = unsafe {
         std::slice::from_raw_parts(words.as_ptr().cast::<u8>().add(offset).cast::<MIB_IPADDRROW_XP>(), count)
     };
-    let mut ips: Vec<_> = rows
-        .iter()
+    // Connecting a UDP socket selects a source address without sending a packet.
+    let preferred = UdpSocket::bind((Ipv4Addr::UNSPECIFIED, 0)).ok().and_then(|socket| {
+        socket.connect((Ipv4Addr::new(192, 0, 2, 1), 9)).ok()?;
+        socket.local_addr().ok().map(|addr| addr.ip())
+    });
+    rows.iter()
         .filter(|row| u32::from(row.wType) & MIB_IPADDR_DISCONNECTED == 0)
         .map(|row| Ipv4Addr::from(row.dwAddr.to_ne_bytes()))
         .filter(Ipv4Addr::is_private)
-        .collect();
-    ips.sort_unstable();
-    ips.dedup();
-    ips
+        .min_by_key(|&ip| (Some(IpAddr::V4(ip)) != preferred, ip))
 }
 
 fn allowed(ip: IpAddr) -> bool {

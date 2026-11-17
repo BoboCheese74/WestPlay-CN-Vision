@@ -32,17 +32,6 @@ export const words: CompanionWords = {
     noGame: '还没有设置游戏',
   },
   screen: {
-    mobileWebUi: {
-      title: '手机远程车机（Mobile WebUI）',
-      detail: '用同一可信局域网中的手机浏览器查看和触控车机。',
-      starting: '正在启动局域网服务…',
-      unavailable: '局域网服务不可用（TCP 8765）。如端口被占用，请释放端口后关闭再开启。',
-      noAddress: '未找到局域网 IPv4 地址。连接局域网后关闭再开启。',
-      copied: '已复制配对链接',
-      copy: '复制配对链接',
-      link: '配对链接',
-      keepPrivate: '在手机上打开完整配对链接。请勿公开分享链接。',
-    },
     titles: {
       starting: '正在启动',
       stopped: '出了点问题',
@@ -165,6 +154,17 @@ export const words: CompanionWords = {
     },
   },
   setup: {
+    mobileWebUi: {
+      title: '手机远程车机（Mobile WebUI）',
+      detail: '用同一可信局域网中的手机浏览器查看和触控车机。',
+      starting: '正在启动局域网服务…',
+      unavailable: '局域网服务不可用（TCP 8765）。如端口被占用，请释放端口后关闭再开启。',
+      noAddress: '未找到局域网 IPv4 地址。连接局域网后关闭再开启。',
+      copied: '已复制配对链接',
+      copy: '复制配对链接',
+      link: '配对链接',
+      keepPrivate: '在手机上打开完整配对链接。请勿公开分享链接。',
+    },
     title: '设置',
     sub: 'WestPlay 安装在哪里，以及出问题时如何修复。',
     game: '游戏',
