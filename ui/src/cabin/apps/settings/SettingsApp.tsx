@@ -277,6 +277,10 @@ function AppearancePage() {
   const chooseOemMode = useCabin((state) => state.chooseOemMode)
   const reduceTransparency = useCabin((state) => state.reduceTransparency)
   const setReduceTransparency = useCabin((state) => state.setReduceTransparency)
+  // Performance Mode keeps the surfaces flat too (store.ts's choosePerformanceMode): the row reads on
+  // while it is, and turning it off here leaves that mode — the switch would do nothing otherwise.
+  const performance = useCabin((state) => state.performanceMode)
+  const choosePerformance = useCabin((state) => state.choosePerformanceMode)
   const open = useSettings((state) => state.open)
   return (
     <Page title={text.settings.appearance}>
@@ -312,8 +316,13 @@ function AppearancePage() {
         <NavRow label={text.settings.textSize} onOpen={() => open('textSize')} />
         <SwitchRow
           label={text.settings.reduceTransparency}
-          on={reduceTransparency}
-          onToggle={setReduceTransparency}
+          on={reduceTransparency || performance}
+          onToggle={(on) => {
+            setReduceTransparency(on)
+            // Performance Mode keeps the surfaces flat too (store.ts): turning this off leaves it, or
+            // the switch would do nothing while that mode is on.
+            if (!on && performance) choosePerformance(false)
+          }}
         />
       </Group>
       {hasBar && (
