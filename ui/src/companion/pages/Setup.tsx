@@ -194,8 +194,9 @@ function MobileWebUi({ status, settings: state, cw }: Pick<PageProps, 'status' |
       {url && (
         <>
           <Row
-            title={new URL(url).origin}
-            detail={copiedUrl === url ? w.copied : w.copy}
+            title={url}
+            detail={w.copy}
+            wrap
             onClick={() => {
               setCopyFailedUrl('')
               navigator.clipboard.writeText(url).then(
@@ -214,7 +215,7 @@ function MobileWebUi({ status, settings: state, cw }: Pick<PageProps, 'status' |
           )}
         </>
       )}
-      {url && <Note>{w.keepPrivate}</Note>}
+      {url && <Note>{copiedUrl === url ? w.copied : w.keepPrivate}</Note>}
       {error && <Note tone="bad">{error}</Note>}
     </Group>
   )
