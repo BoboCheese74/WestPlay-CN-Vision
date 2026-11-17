@@ -41,3 +41,18 @@ ob-gps            ui/dashboard/gps.dlc_toys.sii
 scania-touring    ui/dashboard/scania_touring_23_gps.sii
 man-lions-24      ui/dashboard/man_lions_24_gps.sii
 man-tgx-2020      ui/dashboard/man_tgx_2020_gps.sii
+
+# The Road Trip DLC's Ford Bronco (2024, its own screen: interior/computers.sui), the studio's centre display
+# (a 1280 x 800 UI, its `display1` group whole) drawn on 1024 x 512 (its interior's computers.sui).
+bronco-24         ui/dashboard/ford_bronco_gps_24.sii
+# The Road Trip DLC's Ford F-150 (2023), its own centre screen (interior/computers.sui): the same 1280 x 800
+# UI (its `display1` group whole) drawn on 1024 x 512.
+f150-2023         ui/dashboard/ford_f150_gps_23.sii
+# Freightliner Cascadia (its digital dash's screen, every digital interior), a 1440 x 540 window.
+cascadia          ui/dashboard/freightliner_cascadia_2024_gps.sii
+# Volvo VNL (the older 7" screen, every 2018-on interior), an 800 x 480 window.
+vnl               ui/dashboard/volvo_vnl2018_gps.sii
+# Volvo VNL (the newer 9" screen, every 2025-on interior), a 1280 x 720 window.
+vnl-new           ui/dashboard/volvo_vnl2025_gps.sii
+# Western Star 57X (every interior), a 1440 x 540 window.
+westernstar-57x   ui/dashboard/westernstar_57x_gps.sii

@@ -10,6 +10,7 @@ use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
+use crate::speakers::{self, Equalizer, Head, Speaker};
 use crate::webview::{self, OffscreenWebView, Stage};
 use webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2Environment;
 
@@ -393,6 +394,49 @@ pub struct State {
     pub avatar: Option<String>,
 }
 
+/// What the page is told of the truck's own speakers and the cab around them (`cab_sound.js`):
+/// each as it changes, and kept to tell a page that loaded anew (`Told`).
+#[derive(Clone, Debug, serde::Serialize)]
+#[serde(tag = "action", rename_all = "camelCase")]
+enum Cab {
+    /// The truck's speakers (none: its sound plays as it is), placed around the driver's head.
+    Speakers {
+        speakers: Option<Vec<Speaker>>,
+    },
+    /// The driver's head as the game has it (`cab_sound.js` places the speakers around it).
+    Head {
+        #[serde(flatten)]
+        head: Head,
+    },
+    /// Whether the camera is outside the cab, and how far from it: the sound muffled then, as through
+    /// the cab's walls.
+    Outside {
+        on: bool,
+        distance: f32,
+    },
+    /// The player's tone (the cab's Settings › Sound): bass, mid and treble, dB each.
+    Equalizer {
+        #[serde(flatten)]
+        equalizer: Equalizer,
+    },
+    /// The music's spectrum wanted (the cab's Equalizer open) or not: the page says it as it plays.
+    Spectrum {
+        on: bool,
+    },
+}
+
+/// What the page was told last of the cab: sent again to a page that loaded anew (the speakers, the
+/// head, the camera, the tone and the spectrum kept, in `messages` for that).
+#[derive(Default)]
+struct Told {
+    speakers: Option<Option<Vec<Speaker>>>,
+    head: Option<Head>,
+    camera: Option<(bool, f32)>,
+    equalizer: Option<Equalizer>,
+    spectrum: Option<bool>,
+    messages: [Option<String>; 5],
+}
+
 #[derive(Debug, PartialEq)]
 pub enum Report {
     State(State),
@@ -413,6 +457,8 @@ pub struct QqMusic {
     /// The volume last written (a fade sends many, and the page reports one every tick: only a new
     /// one reaches the file).
     last_volume: RefCell<Option<f64>>,
+    /// What the page was told last of the cab (the truck's speakers, the head, the camera, the tone).
+    told: RefCell<Told>,
 }
 
 /// Questions asked of the page, by id, until answered (the latest `MOST`: the app gives up on older ones).
@@ -446,7 +492,8 @@ impl QqMusic {
         view.log_as("qq music")?;
         view.show(false)?;
         stage.add(&view, false)?;
-        view.add_startup_script(include_str!("qq_music.js"))?;
+        // The truck speakers' sound first: the page's script makes its own of it (`cab_sound.js`).
+        view.add_startup_script(concat!(include_str!("cab_sound.js"), "\n", include_str!("qq_music.js")))?;
         view.navigate_to_string(SHELL)?;
         Ok(Self {
             view,
@@ -454,6 +501,7 @@ impl QqMusic {
             unanswered: RefCell::default(),
             user_data: user_data.to_owned(),
             last_volume: RefCell::new(read_volume(user_data)),
+            told: RefCell::default(),
             // The session the sign-in window gave last run, kept in a file beside the page's own
             // profile: the hidden page's document has no origin (`NavigateToString`), so its own
             // localStorage refuses every write, and the credential would be lost at every start
@@ -465,6 +513,58 @@ impl QqMusic {
     /// Its WebView2 environment, shared with the sign-in window on the same profile folder.
     pub fn environment(&self) -> &ICoreWebView2Environment {
         self.view.environment()
+    }
+
+    /// The truck's speakers (none: its sound plays as it is), the driver's head, and whether the
+    /// camera is outside the cab and how far (metres; 0: not known): the page is told each as it
+    /// changes, the camera when it goes in or out or a quarter metre further, the tone as it's set
+    /// and the spectrum as it's wanted. This page's sound is its own `<audio>` (`cab_sound.js` takes
+    /// it into the browser's graph), so the speakers are what shape it.
+    pub fn cab(
+        &self,
+        speakers: Option<&[Speaker]>,
+        head: Head,
+        outside: bool,
+        distance: f32,
+        equalizer: Equalizer,
+        spectrum: bool,
+    ) -> windows::core::Result<()> {
+        let mut told = self.told.borrow_mut();
+        // The head first: the speakers' loudness is set from where it is as they're placed.
+        if told.head != Some(head) && head.is_sound() {
+            told.head = Some(head);
+            let message = serde_json::to_string(&Cab::Head { head }).unwrap_or_default();
+            told.messages[1] = Some(message.clone());
+            self.view.post_json(&message)?;
+        }
+        if told.speakers.as_ref().map(Option::as_deref) != Some(speakers) {
+            let speakers = speakers.map(<[_]>::to_vec);
+            told.speakers = Some(speakers.clone());
+            let message = serde_json::to_string(&Cab::Speakers { speakers }).unwrap_or_default();
+            told.messages[0] = Some(message.clone());
+            self.view.post_json(&message)?;
+        }
+        let camera = (outside, if outside { (distance * 4.0).round() / 4.0 } else { 0.0 });
+        if told.camera != Some(camera) && camera.1.is_finite() {
+            told.camera = Some(camera);
+            let message = serde_json::to_string(&Cab::Outside { on: camera.0, distance: camera.1 })
+                .unwrap_or_default();
+            told.messages[2] = Some(message.clone());
+            self.view.post_json(&message)?;
+        }
+        if told.equalizer != Some(equalizer) {
+            told.equalizer = Some(equalizer);
+            let message = serde_json::to_string(&Cab::Equalizer { equalizer }).unwrap_or_default();
+            told.messages[3] = Some(message.clone());
+            self.view.post_json(&message)?;
+        }
+        if told.spectrum != Some(spectrum) {
+            told.spectrum = Some(spectrum);
+            let message = serde_json::to_string(&Cab::Spectrum { on: spectrum }).unwrap_or_default();
+            told.messages[4] = Some(message.clone());
+            self.view.post_json(&message)?;
+        }
+        Ok(())
     }
 
     pub fn command(&self, command: &Command) -> windows::core::Result<()> {
@@ -532,6 +632,11 @@ impl QqMusic {
                             &serde_json::json!({ "action": "volume", "percent": share * 100.0 })
                                 .to_string(),
                         );
+                    }
+                    // The cab as it is (the truck's speakers, the head, the camera, the tone): a page
+                    // that loaded anew is told it again, before anything plays.
+                    for told in self.told.borrow().messages.iter().flatten() {
+                        let _ = self.view.post_json(told);
                     }
                     // The questions asked again now the session is in place: a page loading anew
                     // asks for the account's own lists, and the credential has to be there before
@@ -667,10 +772,19 @@ mod tests {
             Command::Ask { id: 4, question: Question::Home }
         );
         let play: Command = serde_json::from_str(r#"{"action":"play","id":"8584177317","index":2}"#).unwrap();
-        assert_eq!(play, Command::Play { id: Some("8584177317".into()), songs: None, index: Some(2), shuffle: None });
+        assert_eq!(
+            play,
+            Command::Play {
+                id: Some("8584177317".into()),
+                songs: None,
+                index: Some(2),
+                shuffle: None,
+                kind: None
+            }
+        );
         assert_eq!(
             serde_json::from_str::<Command>(r#"{"action":"play"}"#).unwrap(),
-            Command::Play { id: None, songs: None, index: None, shuffle: None }
+            Command::Play { id: None, songs: None, index: None, shuffle: None, kind: None }
         );
         assert!(serde_json::from_str::<Command>(r#"{"action":"start"}"#).unwrap() == Command::Start);
         assert!(serde_json::from_str::<Command>(r#"{"action":"explode"}"#).is_err());

@@ -57,8 +57,8 @@ export function VehicleApp() {
   const driven = odometer(telemetry)
   const overall = overallWear(telemetry)
   const faults = damaged(telemetry).length
-  // The game's own countdown, when its fatigue simulation is on and it has said how long there is
-  // (RestTicker, dashboard): with the simulation off the game sends none, and there's nothing to count.
+  // The game's own countdown, when its fatigue simulation is on and it has said how long there is:
+  // with the simulation off the game sends none, and there's nothing to count.
   const rest = fatigue && telemetry.restStopKnown ? (telemetry.restStopMinutes ?? 0) : null
   const cargo = job?.cargoLoaded ? cargoWear(telemetry) : null
 

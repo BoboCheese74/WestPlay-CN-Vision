@@ -77,7 +77,10 @@ pub fn screen_layouts() -> &'static [ScreenLayout] {
 /// stretched to it (owner 2026-11-03): the Scania Smart Dash's 23.44 x 14.35 cm (1.633:1), the Smart Dash
 /// Advanced's 31.51 x 17.49 cm (1.801:1), the Iveco S-Way's 22.25 x 12.46 cm (1.786:1), the Volvo FH's (2021 and
 /// 2024) 19.87 x 11.35 cm (1.750:1); the DAF 2021's 22.37 x 12.58 cm and the Renault T 2024's 19.93 x 11.21 cm,
-/// 16:9, the frame's own.
+/// 16:9, the frame's own; the Road Trip DLC's Ford Bronco (2024) and F-150 (2023), their centre displays' UI
+/// 1280 x 800 (1.6:1, each script's `display1` group); the Freightliner Cascadia's digital dash and the Western
+/// Star 57X, 1440 x 540 (2.667:1, their scripts' whole window); the Volvo VNL's 7" screen 800 x 480 (1.667:1)
+/// and 9" screen 1280 x 720 (16:9).
 pub fn page_height(index: usize) -> u32 {
     match screen_layouts().get(index).map(|layout| layout.id) {
         Some("generic") => 793,
@@ -90,6 +93,12 @@ pub fn page_height(index: usize) -> u32 {
         Some("ob-gps") => 744,
         Some("scania-touring") => 730,
         Some("man-lions-24") => 784,
+        Some("bronco-24") => 800,
+        Some("f150-2023") => 800,
+        Some("cascadia") => 480,
+        Some("vnl") => 768,
+        Some("vnl-new") => 720,
+        Some("westernstar-57x") => 480,
         _ => SCREEN_HEIGHT,
     }
 }

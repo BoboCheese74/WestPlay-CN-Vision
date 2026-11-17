@@ -34,6 +34,17 @@ export interface CompanionWords {
     noGame: string
   }
   screen: {
+    mobileWebUi: {
+      title: string
+      detail: string
+      starting: string
+      unavailable: string
+      noAddress: string
+      copied: string
+      copy: string
+      link: string
+      keepPrivate: string
+    }
     titles: {
       starting: string
       stopped: string

@@ -628,8 +628,9 @@ export interface Strings {
     layoutRearPip: string
     layoutRoofPip: string
   }
-  /** One line at a time over the rest countdown (RestTicker.tsx): the game's own figures, stepping every
-   * few seconds. Values arrive as numbers; the sentence does the rounding. */
+  /** An app's own figures, as sentences (the Vehicle app's fuel line and the rest's): values arrive as
+   * numbers; the sentence does the rounding. Kept for the apps that say them; the map's own ticker that
+   * showed them one line at a time is gone (owner 2026-11-17). */
   ticker: {
     fuel: (litres: number, rangeKm: number) => string
   }

@@ -29,22 +29,28 @@ export function quietWhileReversing(players: readonly MusicPlayer[]): () => void
   /** What each player was at before it was quietened, by name. */
   const before = new Map<string, number>()
   const fallQuiet = () => {
-    // A page that keeps its own volume (Bilibili's, Douyin's) is told apart: held quiet by the page itself while
-    // the truck reverses, its own volume back when it stops (owner 2026-11-03: Bilibili's fell not at all).
-    for (const player of players) player.duck?.(REVERSING_VOLUME)
     for (const player of players) {
       const volume = player.volume()
-      if (volume === null || volume <= REVERSING_VOLUME + SAME) continue
+      // Already at or under the level: left exactly where the player set it. Told to duck anyway, a page
+      // that keeps its own volume (Bilibili's, Douyin's) was held *at* the level instead — 5% or 10%
+      // turned up to 15% as the truck reversed, and back down on the way out (owner 2026-11-18).
+      if (volume !== null && volume <= REVERSING_VOLUME + SAME) continue
+      // A page that keeps its own volume is held quiet by the page itself (owner 2026-11-03: Bilibili's
+      // fell not at all otherwise): its own volume back when the reversing stops.
+      player.duck?.(REVERSING_VOLUME)
+      if (volume === null) continue
       before.set(player.name, volume)
       fade(player.name, player.sendVolume, levelOf(player.name) ?? volume, REVERSING_VOLUME, QUIET_MS)
     }
   }
   const comeBack = () => {
-    for (const player of players) player.duck?.(null)
     for (const player of players) {
       const was = before.get(player.name)
       if (was === undefined) continue
       before.delete(player.name)
+      // Let go of the cab's own quiet: the page's own volume back as it was. Only the players this module
+      // held are told, so one it left alone never gets a volume it didn't lose.
+      player.duck?.(null)
       const volume = player.volume()
       // Still at what the fade left it: the player's own volume is the one to return to. A player that set a new
       // one while reversing has said what it wants.

@@ -358,7 +358,9 @@ export const useCabin = create<CabinState>()(
       setZoomWithSpeed: (zoomWithSpeed) => set({ zoomWithSpeed }),
       setMirrorOn: (mirrorOn) => set({ mirrorOn }),
       choosePerformanceMode: (on) => {
-        useCabin.getState().setPerformanceMode(on)
+        // The glass goes with it: Liquid Glass doesn't know this mode, so the flat surfaces are what the
+        // page gives up (§ Display & Performance). Off, the glass comes back as it was.
+        set({ performanceMode: on, reduceTransparency: on })
         if (isInHost()) postToHost({ type: 'performanceMode', on })
       },
       powerEvent: (event) =>
