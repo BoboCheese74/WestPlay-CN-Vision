@@ -15,7 +15,14 @@ undocumented_unsafe_blocks = "warn"
 missing_safety_doc = "warn"
 
 [profile.release]
-debug = "line-tables-only"
+# The shipped binaries, as small as they go (owner 2026-11-18: the installer is 47 MB): optimised for
+# size, one codegen unit so the LTO sees everything, and the symbols stripped. Panics then say the crate
+# and the backtrace but not the line — a crash still names its call in `plugin.log`, and the size is what
+# a player notices.
+opt-level = "z"
+lto = true
+codegen-units = 1
+strip = true
 
 # Debug builds keep line numbers (panics, backtraces) but not full debug symbols: Windows' .pdb files, kept
 # for every kind of build (tauri dev, tests, clippy, examples), grew target/ past 40 GB. Third-party crates

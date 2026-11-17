@@ -12,9 +12,9 @@ describe('weatherView', () => {
       condition: 'Clear',
       symbol: 'sun',
     })
-    expect(weatherView({ now: 'rain', coming: 'rain' }, noon, 'Taranto', stringsFor('tr_tr'))).toEqual({
+    expect(weatherView({ now: 'rain', coming: 'rain' }, noon, 'Taranto', stringsFor('zh_cn'))).toEqual({
       place: 'Taranto',
-      condition: 'Yağmur',
+      condition: '雨',
       symbol: 'rain',
     })
   })
