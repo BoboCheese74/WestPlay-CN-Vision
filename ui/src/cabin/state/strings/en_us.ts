@@ -466,7 +466,8 @@ export const strings: Strings = {
     dashboard: 'Dashboard',
     widgets: 'Widgets',
     mapWhileDriving: 'Full-Screen Map While Driving',
-    mapWhileDrivingFooter: 'While you drive, the map fills the Dashboard once you haven’t touched the screen for 30 seconds.',
+    mapWhileDrivingFooter:
+      'While you drive, the map fills the Dashboard once you haven’t touched the screen for 30 seconds.',
     photoWidget: 'Photos',
     showAlbumArt: 'Show Album Art',
     dateTime: 'Date & Time',
@@ -515,6 +516,7 @@ export const strings: Strings = {
     player: 'Player',
     safari: 'Safari',
     podcasts: 'Qingting FM',
+    radio: 'Radio',
     phone: 'Phone',
     messages: 'Messages',
     vehicle: 'Vehicle',
