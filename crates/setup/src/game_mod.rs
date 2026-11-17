@@ -438,7 +438,7 @@ fn game_screen_scripts(game: &GameFiles, index: usize) -> Result<Vec<(String, Ve
         let shown = SHOWN_PARTS.iter().find(|(id, _)| *id == layout.id).map(|(_, part)| part);
         let patched = match window {
             Some(window) => patch_window_script(&text, &texture, &window.shown, rows),
-            None => patch_gps_script(&text, &texture, shown, rows),
+            None => patch_gps_script(&text, &texture, shown, rows, screen_pages(layout.id)),
         }
         .map_err(|problem| BuildError::Script { script, problem })?;
         files.push((script.to_owned(), patched.into_bytes()));

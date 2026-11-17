@@ -8,8 +8,7 @@ fn main() {
     let out = std::env::args().nth(2).expect("mod dir");
     let files = GameFiles::install(Path::new(&dir)).expect("game files");
     let marks = westplay_setup::cab_mark::Marks::default();
-    let empty = GameFiles::new(Vec::new());
-    let (bytes, built) = westplay_setup::game_mod::build(&files, &[], &empty, &marks).expect("build");
+    let (bytes, built) = westplay_setup::game_mod::build(&files, &[], &marks).expect("build");
     println!("  mod {} bytes, man patched: {}", bytes.len(), built.patched.contains(&"man-tgx-2020"));
 
     // The game's own MAN TGX 2020 GPS script, patched the same way, under WestPlay's own name; and the

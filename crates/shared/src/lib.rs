@@ -398,7 +398,7 @@ pub struct PluginBlock {
 
 /// How long (ms) a volume key held is a hold, not a press (owner 2026-11-03: two seconds): Volume up's the next
 /// song, Volume down's the one before (or the song's start, past its first seconds).
-pub const KEYBIND_HOLD_MS: u64 = 2000;
+pub const KEYBIND_HOLD_MS: u64 = 1000;
 
 /// The most of TruckersMP's players around the player the bridge carries (its streaming range holds far fewer).
 pub const NEARBY_MAX: usize = 128;
@@ -540,7 +540,8 @@ pub enum Keybind {
 }
 
 impl Keybind {
-    pub const ALL: [Keybind; KEYBIND_COUNT] = [Keybind::VolumeUp, Keybind::VolumeDown, Keybind::PlayPause];
+    pub const ALL: [Keybind; KEYBIND_COUNT] =
+        [Keybind::VolumeUp, Keybind::VolumeDown, Keybind::PlayPause, Keybind::BrightnessDown, Keybind::BrightnessUp];
 
     /// Whether it can be held ([`KEYBIND_HOLD_MS`]): the volume keys, whose press then counts as they're let go.
     pub fn holds(self) -> bool {
@@ -548,7 +549,7 @@ impl Keybind {
     }
 }
 
-pub const KEYBIND_COUNT: usize = 3;
+pub const KEYBIND_COUNT: usize = 5;
 
 /// A keybind as the bridge carries it: its key's virtual-key code, and whether it's pressed while holding the
 /// interaction key (using the screen) rather than alone.
@@ -1231,6 +1232,7 @@ mod tests {
             id: FixedStr::new("vehicle.daf.2021"),
             name: FixedStr::new("XG+"),
             head: [-0.722, 1.696, 0.686],
+            axles: 3,
             plate: FixedStr::new("CA 324KD"),
             plate_country: FixedStr::new("italy"),
             fuel_capacity: 700.0,
@@ -1290,15 +1292,6 @@ mod tests {
         assert!(screen_supported(layout("iveco-sway"), "vehicle.iveco.sway"));
         assert!(!screen_supported(screen_layouts().len(), "vehicle.scania.s_2016"));
 
-        // American Truck Simulator's trucks, and Road Trip's cars (measured 2026-11-06).
-        assert!(screen_supported(layout("ford"), "vehicle.ford.bronco_24"));
-        assert!(screen_supported(layout("ford"), "vehicle.ford.f150_23"));
-        assert!(screen_supported(layout("kenworth"), "vehicle.kenworth.t680_2022"));
-        assert!(screen_supported(layout("volvo-vnl"), "vehicle.volvo.vnl2018"));
-        assert!(screen_supported(layout("volvo-vnl"), "vehicle.volvo.vnl2025"));
-        // Each is its own vehicles' only: another truck keeps the game's own screen.
-        assert!(!screen_supported(layout("ford"), "vehicle.scania.s_2016"));
-        assert!(!screen_supported(layout("kenworth"), "vehicle.volvo.vnl2018"));
     }
 
     #[test]

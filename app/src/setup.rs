@@ -494,9 +494,7 @@ fn look_at_game_mods(game: &Game, looked: &mut HashMap<PathBuf, ModsStamp>) {
             wanted.len(),
             present.len(),
             wanted.iter().filter(|spot| mod_trucks.contains(spot)).count(),
-            built.cab_marks,
-            game_mod::LAYOUT,
-            layout_current
+            built.cab_marks
         );
         log!("setup: patched {:?}; missing {:?}", built.patched, built.missing);
         for (script, why) in &marks.left {

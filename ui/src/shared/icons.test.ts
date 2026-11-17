@@ -26,16 +26,18 @@ const ROLES: AppIconRole[] = [
 ]
 
 describe('appIcon', () => {
-  it('gives every role WestPlay’s icon in the look asked for, and each file is there', () => {
+  it('gives every role WestPlay\'s icon in the look asked for, and each file is there', () => {
     for (const role of ROLES) {
       for (const look of ['light', 'dark'] as const) {
         expect(FILES).toContain(appIcon(role, look))
       }
     }
-      // The music services' and Bilibili's own marks are one PNG each (icons.ts, PICTURES): the same
-      // file in both looks. Every other role is WestPlay's own drawing, light and dark.
-      expect(appIcon('youtubeMusic', 'dark')).toBe(appIcon('youtubeMusic', 'light'))
-      expect(appIcon('youtubeMusic', 'light')).toMatch(/\.png$/)
-      expect(appIcon('safari', 'dark')).not.toBe(appIcon('safari', 'light'))
+    // Every role is WestPlay's own drawing, light and dark: the player's icon set is SVG in both
+    // looks (icons.ts, `PICTURES` empty — owner 2026-11-16: the set replaced the PNGs the music
+    // services' and Bilibili's marks used to be).
+    for (const role of ROLES) {
+      expect(appIcon(role, 'light')).toMatch(/\.light\.svg$/)
+      expect(appIcon(role, 'dark')).toMatch(/\.dark\.svg$/)
+    }
   })
 })

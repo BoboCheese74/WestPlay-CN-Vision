@@ -249,6 +249,8 @@ type Persisted = Pick<
   | 'hours24'
   | 'textSize'
   | 'reduceTransparency'
+  | 'trafficLights'
+  | 'zoomWithSpeed'
   | 'brightness'
   | 'mirrorOn'
 >
@@ -272,6 +274,7 @@ export const useCabin = create<CabinState>()(
       hours24: true,
       textSize: DEFAULT_TEXT_SIZE,
       reduceTransparency: false,
+      trafficLights: true,
       oemMode: 'auto',
       refreshRate: DEFAULT_REFRESH_RATE,
       performanceMode: false,
@@ -398,6 +401,9 @@ export const useCabin = create<CabinState>()(
         hours24: state.hours24,
         textSize: state.textSize,
         reduceTransparency: state.reduceTransparency,
+        trafficLights: state.trafficLights,
+        zoomWithSpeed: state.zoomWithSpeed,
+        mirrorOn: state.mirrorOn,
         brightness: state.brightness,
       }),
       // Stored data comes from an earlier version of WestPlay (or was edited): keep only what is valid.
@@ -447,6 +453,9 @@ function sanitize(stored: Partial<Persisted> | undefined): Partial<Persisted> {
   if (typeof stored.hours24 === 'boolean') result.hours24 = stored.hours24
   if (stored.textSize !== undefined) result.textSize = toTextSize(stored.textSize)
   if (typeof stored.reduceTransparency === 'boolean') result.reduceTransparency = stored.reduceTransparency
+  if (typeof stored.trafficLights === 'boolean') result.trafficLights = stored.trafficLights
+  if (typeof stored.zoomWithSpeed === 'boolean') result.zoomWithSpeed = stored.zoomWithSpeed
+  if (typeof stored.mirrorOn === 'boolean') result.mirrorOn = stored.mirrorOn
   if (typeof stored.brightness === 'number' && Number.isFinite(stored.brightness)) {
     result.brightness = Math.max(0, Math.min(1, stored.brightness))
   }
