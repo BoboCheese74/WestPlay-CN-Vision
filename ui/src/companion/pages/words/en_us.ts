@@ -159,6 +159,17 @@ export const words: CompanionWords = {
     },
   },
   setup: {
+    mobileWebUi: {
+      title: 'Mobile WebUI',
+      detail: 'View and control the cab from a phone browser on the same trusted local network.',
+      starting: 'Starting the LAN service…',
+      unavailable: 'LAN service unavailable (TCP 8765). If the port is in use, free it and turn the switch off and on.',
+      noAddress: 'No private IPv4 address found. Connect to the local network and turn the switch off and on.',
+      copied: 'Pairing link copied',
+      copy: 'Click to copy the link, then send it to your phone and open it',
+      link: 'Pairing link',
+      keepPrivate: 'Keep the pairing link private.',
+    },
     title: 'Setup',
     sub: 'Where WestPlay is installed, and how to put it right if something goes wrong.',
     game: 'Your Game',

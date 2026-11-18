@@ -71,6 +71,7 @@ const UPDATE: Offer | null = query.has('update')
   : null
 
 let settings: Settings = {
+  mobileWebUi: false,
   interaction: { key: 0xa4, mode: 'hold', sensitivity: 1.4 },
   keybinds: {
     volumeDown: { key: 0x31, withInteractionKey: true },

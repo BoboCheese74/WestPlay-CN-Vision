@@ -154,6 +154,17 @@ export const words: CompanionWords = {
     },
   },
   setup: {
+    mobileWebUi: {
+      title: '手機遠端車機（Mobile WebUI）',
+      detail: '用同一個可信任區域網路中的手機瀏覽器查看並觸控車機。',
+      starting: '正在啟動區域網路服務…',
+      unavailable: '區域網路服務無法使用（TCP 8765）。若連接埠已被占用，請釋放連接埠後關閉再開啟。',
+      noAddress: '找不到區域網路 IPv4 位址。連上區域網路後關閉再開啟。',
+      copied: '已複製配對連結',
+      copy: '點擊複製連結地址，傳到手機開啟',
+      link: '配對連結',
+      keepPrivate: '請勿公開分享配對連結。',
+    },
     title: '設定',
     sub: 'WestPlay 安裝在哪裡，以及出問題時如何修復。',
     game: '遊戲',
