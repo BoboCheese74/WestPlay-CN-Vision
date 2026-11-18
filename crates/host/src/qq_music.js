@@ -275,7 +275,13 @@
    * own list for everyone (which a signed-in request no longer answers with: see `home`).
    */
   const get = async (path, options = {}) => {
-    const response = await fetch(`${BASE}${path}`, {
+    // `fresh`: the layer caches its answers, and a cached stream's vkey can run out — the CDN then answers
+    // 403 (which the browser reports as a source it can't play). Its cache is keyed by the whole address,
+    // so a changing query asks it again.
+    const where = options.fresh
+      ? `${BASE}${path}${path.includes('?') ? '&' : '?'}fresh=${Date.now()}`
+      : `${BASE}${path}`
+    const response = await fetch(where, {
       headers: { accept: 'application/json', ...(options.anon ? {} : credentialHeaders()) },
     })
     // Too many asked at once (the layer's own limit, 429): waited for, a few times, rather than
@@ -866,8 +872,15 @@
 
   const CDN = 'https://isure.stream.qqmusic.qq.com/'
 
-  /** What the layer said about the last song asked for: its file's name and result, for a failed play. */
-  let lastStream = null
+  /**
+   * What the layer said of each stream asked for, by its address: a failed play is told with the song it
+   * was really given (`el.src`), not with whichever song was asked for last — a skip while the first was
+   * still looking its mid up overwrote that, and the log named two different songs (owner 2026-11-18).
+   */
+  const streams = new Map()
+
+  /** Songs whose address was asked for again after a failed play (once each: no loop). */
+  const refreshed = new Set()
 
 
   const player = {
@@ -875,6 +888,8 @@
     // does, so a queue of them doesn't spin for ever.
     skipped: 0,
     audio: null,
+    // The song being loaded now (its mid), for a failed play to ask the layer for its address again.
+    mid: null,
     // Mids in queue order, where it plays from, what list it came from, the options.
     queue: [],
     index: 0,
@@ -927,6 +942,8 @@
         // The element's own error, before or after play() answered: the code is what tells a format the
         // browser can't take from a host that refused it.
         const media = event?.target
+        const address = String(media?.src || '')
+        const said = streams.get(address)
         if (media?.error) {
           post({
             qqProbe:
@@ -935,10 +952,44 @@
               ' "' +
               (media.error.message || '') +
               '" | file ' +
-              (lastStream ? lastStream.filename : 'unknown') +
+              (said ? said.filename : 'unknown') +
+              ' | crossOrigin ' +
+              (media.crossOrigin || 'none') +
               ' | src ' +
-              String(media.src || '').slice(0, 120),
+              address.slice(0, 160),
           })
+          // What the host really answered for it: a 403 or a page of HTML is a different fault from a
+          // file the browser can't decode, and only the status says which.
+          probeStream(address)
+        }
+        // Taken into the cab and refused there: given up, and this song played plainly instead.
+        if (throughCab && !cabGaveUp) {
+          cabGaveUp = true
+          throughCab = false
+          post({ qqProbe: 'PROBE the cab refused the song; giving it up and playing plainly' })
+          const at = media?.currentTime || 0
+          try {
+            media?.pause()
+          } catch {}
+          player.audio = null
+          try {
+            media?.remove()
+          } catch {}
+          if (address) {
+            const fresh = audio()
+            fresh.addEventListener(
+              'loadedmetadata',
+              () => {
+                try {
+                  fresh.currentTime = Math.max(0, at)
+                } catch {}
+                fresh.play().catch(() => {})
+              },
+              { once: true },
+            )
+            fresh.src = address
+          }
+          return
         }
         onError()
       })
@@ -958,6 +1009,42 @@
    *
    * Kept by host (the vkey changes every song, the host's behaviour doesn't).
    */
+  /** What the host answers for `url`: its status, type and first bytes, said once per address. */
+  const probed = new Set()
+  const probeStream = async (url) => {
+    if (!url || probed.has(url)) return
+    probed.add(url)
+    try {
+      const answer = await fetch(url, {
+        mode: 'cors',
+        credentials: 'omit',
+        headers: { Range: 'bytes=0-1023' },
+      })
+      const head = new Uint8Array(await answer.arrayBuffer().catch(() => new ArrayBuffer(0)))
+      const first = Array.from(head.slice(0, 8))
+        .map((byte) => byte.toString(16).padStart(2, '0'))
+        .join(' ')
+      post({
+        qqProbe:
+          'PROBE stream fetch: HTTP ' +
+          answer.status +
+          ' CT=' +
+          (answer.headers.get('content-type') || 'none') +
+          ' ACAO=' +
+          (answer.headers.get('access-control-allow-origin') || 'none') +
+          ' bytes=' +
+          head.length +
+          ' first=' +
+          (first || 'none'),
+      })
+    } catch (error) {
+      post({
+        qqProbe:
+          'PROBE stream fetch FAILED: ' + (error && error.name + ': ' + error.message) + ' | ' + url.slice(0, 140),
+      })
+    }
+  }
+
   const corsHosts = new Map()
   const corsOk = async (url) => {
     let host = ''
@@ -1105,8 +1192,8 @@
     return text
   }
 
-  const streamOf = async (mid) => {
-    const found = await get(`/song/${encodeURIComponent(mid)}/url`)
+  const streamOf = async (mid, fresh = false) => {
+    const found = await get(`/song/${encodeURIComponent(mid)}/url`, { fresh })
     const list = Array.isArray(found) ? found : found?.data
     const item = list?.[0]
     if (!item || item.result !== 0 || !item.purl) {
@@ -1131,8 +1218,14 @@
     }
     // Kept for what a failed play says: the layer's own name for the file (its prefix is the quality,
     // its extension the format) tells a song WebView2 can't decode from a host that refused the request.
-    lastStream = { mid, filename: String(item.filename ?? ''), result: item.result, purl: String(item.purl) }
-    return CDN + item.purl
+    const address = CDN + item.purl
+    streams.set(address, {
+      mid,
+      filename: String(item.filename ?? ''),
+      result: item.result,
+      purl: String(item.purl),
+    })
+    return address
   }
 
   // A song's own detail, normalised like a list row; on failure a bare placeholder (the app keeps its own).
@@ -1198,8 +1291,9 @@
     tellPlayback()
     const mid = await resolveMid(weakMid)
     if (token !== player.token) return
+    player.mid = mid
     try {
-      const [meta, url] = await Promise.all([metaOf(mid), streamOf(mid)])
+      const [meta, url] = await Promise.all([metaOf(mid), streamOf(mid, refreshed.has(mid))])
       if (token !== player.token) return // superseded by a newer play/skip
       player.track = meta
       // The cab takes the song only where its host lets the browser have it (asked here, once per host):
@@ -1215,6 +1309,7 @@
       if (autoplay) {
         try {
           await el.play()
+          refreshed.delete(mid)
           checkAudible()
         } catch (error) {
           // What the element itself says of it: code 4 is a source the browser can't use (a format
@@ -1228,9 +1323,10 @@
               ' | element ' +
               (el_error ? 'code ' + el_error.code + ' "' + (el_error.message || '') + '"' : 'no error') +
               ' | file ' +
-              (lastStream
-                ? lastStream.filename + ' (result ' + lastStream.result + ')'
-                : 'unknown') +
+              (() => {
+                const said = streams.get(String(el.src || ''))
+                return said ? said.filename + ' (result ' + said.result + ')' : 'unknown'
+              })() +
               ' | crossOrigin ' +
               (el.crossOrigin || 'none') +
               ' | src ' +
@@ -1239,6 +1335,15 @@
               (throughCab ? 'cab' : 'plain'),
           })
           player.loading = false
+          // The CDN refused the stream (a vkey that ran out: 403, which the browser reports as a source
+          // it can't play): its address is asked for again, and the song played from that — the layer
+          // hands out a new vkey every time (checked). Once per song.
+          if (!refreshed.has(mid) && streams.has(String(el.src || ''))) {
+            refreshed.add(mid)
+            post({ qqProbe: 'PROBE the CDN refused the stream; asking the layer for a new one' })
+            setTimeout(() => loadCurrent(autoplay), 0)
+            return
+          }
           // Taken into the cab and refused there (a host that answered wrongly, a graph that
           // couldn't be made): given up for good, and this song played plainly instead. Without this
           // the element stayed on the refused path and the song never played at all.

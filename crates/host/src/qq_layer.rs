@@ -17,7 +17,10 @@ use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
 /// The port the layer serves on (`config.toml`'s `server.port`, and qq_music.js's `BASE`).
-pub const PORT: u16 = 8080;
+/// The port the layer answers on when it's free: 8787, clear of the 8080 that Steam's own browser
+/// (`steamwebhelper`) holds on players' PCs (PR #5, @ManDik-Chan). The others are tried in turn when
+/// something has it, and 8080 stays last for a layer an older WestPlay left running.
+pub const PORT: u16 = 8787;
 
 /// The port the layer is answering on this run (the one `start` chose: [`PORT`] unless something else
 /// had it). QQ Music's hidden page asks it there (`qq_music.rs`), which starts after the layer.
@@ -51,9 +54,11 @@ impl Layer {
         // A port that merely answers isn't enough — 8080 is a busy one, and Steam's own browser
         // (`steamwebhelper`) holds it on players' PCs: taking that for the layer left the app's page
         // asking Steam for its songs (owner 2026-11-17, a player whose QQ Music said "couldn't load").
-        if ours_is_serving(PORT) {
-            crate::log!("[qq layer] already serving on {PORT}");
-            SERVING.store(PORT, Ordering::Release);
+        // Ours already answering on any of them (a WestPlay left running, or one of an older build on
+        // 8080): its own is not needed, and the page is told where it is.
+        if let Some(port) = PORTS.iter().copied().find(|&port| ours_is_serving(port)) {
+            crate::log!("[qq layer] already serving on {port}");
+            SERVING.store(port, Ordering::Release);
             return None;
         }
         let python = plain(folder.join("python").join("python.exe"));
@@ -82,7 +87,22 @@ impl Layer {
         let child = Command::new(&python)
             .arg(&run)
             .current_dir(&web)
+            // The port the player's page asks too (SERVING), whatever the bundled config.toml says: an
+            // older install's config still names 8080.
+            .env("QQMUSIC_SERVER_HOST", "127.0.0.1")
             .env("QQMUSIC_SERVER_PORT", port.to_string())
+            // The layer rates itself at 60 requests a minute per address (`[security]` in its config), and
+            // the page's own screen asks for far more than that at once (a home feed, its rows' covers, a
+            // collection's songs, the lyrics): answered 429, the app showed nothing at all. Our own calls
+            // come from loopback and go no further than this PC, so they're exempt (PR #5, @ManDik-Chan:
+            // 65 requests in a row all answered 200 with this).
+            //
+            // The whole section goes as JSON: its reader splits environment keys on underscores, so a
+            // nested `QQMUSIC_SECURITY__RATE_LIMIT_EXEMPT_IPS` would be taken apart wrong.
+            .env(
+                "QQMUSIC_SECURITY",
+                serde_json::json!({ "rate_limit_exempt_ips": ["127.0.0.1", "::1"] }).to_string(),
+            )
             // Its own console is hidden: nothing of it shows in the cab.
             .stdin(Stdio::null())
             .stdout(Stdio::null())
@@ -218,7 +238,7 @@ fn plain(path: PathBuf) -> PathBuf {
 /// nothing more).
 /// The ports the layer may answer on, in order: 8080, the one WestPlay has always used, then the ones
 /// it moves to when something else has that (Steam's own browser does, on players' PCs).
-const PORTS: &[u16] = &[PORT, 18080, 18081, 18082, 18083];
+const PORTS: &[u16] = &[PORT, 18080, 18081, 18082, 18083, 8080];
 
 /// The first of [`PORTS`] nothing is listening on, and why 8080 wasn't taken when it wasn't (`None`:
 /// it was free).
