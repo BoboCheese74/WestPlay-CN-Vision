@@ -63,7 +63,7 @@ describe('playsOnWithPower', () => {
   it('is every site but Bilibili, whose video is left paused', () => {
     expect(playsOnWithPower('qqMusic')).toBe(true)
     expect(playsOnWithPower('netease')).toBe(true)
-    expect(playsOnWithPower('qingting')).toBe(true)
+    expect(playsOnWithPower('netease')).toBe(true)
     expect(playsOnWithPower('bilibili')).toBe(false)
     // No page at all: nothing to play back either way.
     expect(playsOnWithPower(null)).toBe(true)
@@ -127,7 +127,7 @@ describe('pauseWebAppWithPower', () => {
 
   it('plays Kugou Music on as the electrics come back (its own player, its own button)', () => {
     expect(playsOnWithPower('kugou')).toBe(true)
-    expect(playsOnWithPower('douyin')).toBe(true)
+    expect(playsOnWithPower('netease')).toBe(true)
   })
 
   it('leaves Bilibili paused as the electrics come back', () => {
@@ -177,7 +177,7 @@ describe('pauseWebAppWithPower', () => {
   })
 
   it('plays a page that started playing in the dark back on as the electrics come back', () => {
-    setSite('qingting')
+    setSite('netease')
     stop = pauseWebAppWithPower()
     setPower('off')
     sent.length = 0

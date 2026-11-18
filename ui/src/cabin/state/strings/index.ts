@@ -685,7 +685,7 @@ export interface Strings {
     /** The rest card's note under the countdown ("Time until rest", 休息时间). */
     overall: string
   }
-  /** The web app (a streaming site's own page, whole: Bilibili, QQ Music, NetEase Cloud Music, Qingting FM). */
+  /** The web app (a streaming site's own page, whole: Bilibili, QQ Music, NetEase Cloud Music). */
   webApp: {
     /** The bar's buttons. */
     back: string

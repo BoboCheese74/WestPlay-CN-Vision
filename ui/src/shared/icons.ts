@@ -30,7 +30,7 @@ const FILES: Record<AppIconRole, string> = {
   maps: 'maps',
   music: 'music',
   spotify: 'netease',
-  // Qingting FM's own mark (red, on its own card): the podcast slot shows it now.
+  // The podcast slot's mark: kept for players' icon sets (`podcasts` is no longer an app).
   podcasts: 'qingting',
   radio: 'radio',
   messages: 'messages',

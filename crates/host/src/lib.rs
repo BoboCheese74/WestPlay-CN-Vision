@@ -1430,7 +1430,8 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
                         // that for a page that reloads; here nothing was running yet to ask it).
                         match &command {
                             qq_music::Command::Start => {
-                                if let Some(app) = start_qq_music(&mut qq_music, &stage, &config) {
+                                let port = qq_layer::serving_port();
+                                if let Some(app) = start_qq_music(&mut qq_music, &stage, &config, port) {
                                     let _ = app.command(&command);
                                     for waiting in qq_music_early.drain(..) {
                                         let _ = app.command(&waiting);
@@ -2317,7 +2318,7 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
             if let Some(player) = &qq_music {
                 let _ = player.cab(truck_speakers, head, outside, distance, equalizer, spectrum);
             }
-            // The web app's site (NetEase Cloud Music, Bilibili, Qingting FM): its sound through the
+            // The web app's site (NetEase Cloud Music, Bilibili): its sound through the
             // truck's own speakers too, where the page's stream is one the browser lets out that way (webapp.rs).
             if let Some(player) = &webapp {
                 let _ = player.cab(truck_speakers, head, outside, distance, equalizer, spectrum);
@@ -2816,10 +2817,12 @@ fn start_qq_music<'a>(
     qq_music: &'a mut Option<qq_music::QqMusic>,
     stage: &Stage,
     config: &Config,
+    // The port the layer answers on (8080 unless something else had it: qq_layer.rs).
+    port: u16,
 ) -> Option<&'a qq_music::QqMusic> {
     if qq_music.is_none() {
         let user_data = config.data_dir.join("webview2-qq-music");
-        match qq_music::QqMusic::start(stage, config.width, config.height, &user_data) {
+        match qq_music::QqMusic::start(stage, config.width, config.height, &user_data, port) {
             Ok(started) => {
                 log!("[qq music] opened");
                 *qq_music = Some(started)

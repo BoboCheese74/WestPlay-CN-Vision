@@ -9,7 +9,6 @@ export const APP_IDS = [
   'youtubeMusic',
   'player',
   'safari',
-  'podcasts',
   'radio',
   'phone',
   'messages',
@@ -39,7 +38,6 @@ export const APPS: Record<AppId, AppDefinition> = {
   youtubeMusic: { id: 'youtubeMusic', icon: 'youtubeMusic' },
   player: { id: 'player', icon: 'player' },
   safari: { id: 'safari', icon: 'safari' },
-  podcasts: { id: 'podcasts', icon: 'podcasts' },
   radio: { id: 'radio', icon: 'radio' },
   phone: { id: 'phone', icon: 'phone' },
   messages: { id: 'messages', icon: 'messages' },
@@ -55,11 +53,10 @@ export function isAppId(value: unknown): value is AppId {
   return typeof value === 'string' && (APP_IDS as readonly string[]).includes(value)
 }
 
-/** Not in this release: Podcasts. Its id stays (its icon, players' icon sets), but it's not on Home, and a saved
- * screen or recent can't open it. (Phone and Messages are on Home, their windows saying they aren't ready yet:
- * owner 2026-11-03.) */
 // Phone and Messages are on Home (their windows saying they're not ready yet): the rest are built.
-// Podcasts keeps Qingting FM's slot (apps/AppScreen: `podcasts` draws the site).
+// Podcasts (Qingting FM) is gone for good: the Live Radio app (apps/radio, from PR #4 by juner122king)
+// took its place — the site it showed was a page of its own, while the radio is the host's own
+// (owner 2026-11-18).
 const NEXT_RELEASE: ReadonlySet<AppId> = new Set<AppId>(['phone', 'messages'])
 
 /** The apps this release has, in Home grid order. */

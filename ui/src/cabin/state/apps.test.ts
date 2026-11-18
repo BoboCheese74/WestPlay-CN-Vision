@@ -11,8 +11,7 @@ describe('the apps this release has', () => {
       'youtubeMusic',
       'player',
       'safari',
-      'podcasts',
-      'radio',
+        'radio',
       'calendar',
       'vehicle',
       'weather',
@@ -25,7 +24,8 @@ describe('the apps this release has', () => {
   it('opens none of the later ones from a saved screen or recent', () => {
     expect(isReleasedApp('phone')).toBe(false)
     expect(isReleasedApp('messages')).toBe(false)
-    expect(isReleasedApp('podcasts')).toBe(true)
+    // Podcasts (Qingting FM) is gone: the Live Radio app took its place (owner 2026-11-18).
+  expect(isReleasedApp('podcasts')).toBe(false)
     expect(isReleasedApp('calendar')).toBe(true)
     expect(isReleasedApp('nonsense')).toBe(false)
   })

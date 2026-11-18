@@ -97,14 +97,15 @@ describe('the cabin’s own press on the page', () => {
 describe('the cabin’s own volume slider', () => {
   it('is left out where the player has a volume control of its own', () => {
     expect(cabinVolumeFor('bilibili')).toBe(false)
-    // Douyin's player slider comes first (owner 2026-11-03): nothing of the cabin's to override it with.
-    expect(cabinVolumeFor('douyin')).toBe(false)
-    // The music sites, and the podcast one, keep it (and no page at all: nothing to show it for).
-    expect(cabinVolumeFor('qqMusic')).toBe(true)
-    expect(cabinVolumeFor('netease')).toBe(true)
-    expect(cabinVolumeFor('kugou')).toBe(true)
-    expect(cabinVolumeFor('qingting')).toBe(true)
-    expect(cabinVolumeFor(null)).toBe(true)
+      expect(cabinVolumeFor('bilibili')).toBe(false)
+      // Douyin's player slider comes first (owner 2026-11-03): nothing of the cabin's to override it with.
+      expect(cabinVolumeFor('douyin')).toBe(false)
+      // The music sites keep it (and no page at all: nothing to show it for). Podcasts (Qingting FM) is
+      // gone in favour of the Live Radio app, which isn't a web page at all (owner 2026-11-18).
+      expect(cabinVolumeFor('qqMusic')).toBe(true)
+      expect(cabinVolumeFor('netease')).toBe(true)
+      expect(cabinVolumeFor('kugou')).toBe(true)
+      expect(cabinVolumeFor(null)).toBe(true)
   })
 })
 
@@ -147,8 +148,8 @@ describe('wordsAreSongs', () => {
     expect(wordsAreSongs('qqMusic')).toBe(false)
     expect(wordsAreSongs('netease')).toBe(true)
     expect(wordsAreSongs('bilibili')).toBe(false)
-    expect(wordsAreSongs('qingting')).toBe(false)
-    expect(wordsAreSongs('douyin')).toBe(false)
+    expect(wordsAreSongs('bilibili')).toBe(false)
+    expect(wordsAreSongs('bilibili')).toBe(false)
     expect(wordsAreSongs(null)).toBe(false)
   })
 })

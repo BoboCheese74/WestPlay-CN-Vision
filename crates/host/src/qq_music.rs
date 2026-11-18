@@ -487,11 +487,20 @@ impl Unanswered {
 
 impl QqMusic {
     /// Opens the QQ Music hidden page in a WebView of `stage`'s frame (`width` x `height`).
-    pub fn start(stage: &Stage, width: u32, height: u32, user_data: &Path) -> Result<Self, webview::Error> {
+    pub fn start(
+        stage: &Stage,
+        width: u32,
+        height: u32,
+        user_data: &Path,
+        port: u16,
+    ) -> Result<Self, webview::Error> {
         let view = OffscreenWebView::new(stage, width, height, user_data)?;
         view.log_as("qq music")?;
         view.show(false)?;
         stage.add(&view, false)?;
+        // Where the layer answers: the port it was given (8080 unless something else had it, as Steam's
+        // own browser often does), told before either script runs.
+        view.add_startup_script(&format!("window.__westplayQqBase = 'http://127.0.0.1:{port}';\n"))?;
         // The truck speakers' sound first: the page's script makes its own of it (`cab_sound.js`).
         view.add_startup_script(concat!(include_str!("cab_sound.js"), "\n", include_str!("qq_music.js")))?;
         view.navigate_to_string(SHELL)?;

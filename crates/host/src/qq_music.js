@@ -10,7 +10,9 @@
 (function () {
   const post = (message) => window.chrome?.webview?.postMessage(message)
 
-  const BASE = 'http://127.0.0.1:8080'
+  // Where the layer answers: the host puts the port it started it on here before this script runs
+  // (8080 unless something else had it — Steam's own browser holds 8080 on players' PCs).
+  const BASE = window.__westplayQqBase || 'http://127.0.0.1:8080'
 
   // --- Small helpers ----------------------------------------------------------------------------------------
 
@@ -864,6 +866,9 @@
 
   const CDN = 'https://isure.stream.qqmusic.qq.com/'
 
+  /** What the layer said about the last song asked for: its file's name and result, for a failed play. */
+  let lastStream = null
+
 
   const player = {
     // How many songs in a row had no stream (a paying one): reset by anything the player itself
@@ -918,7 +923,25 @@
       el.addEventListener('pause', tellPlayback)
       el.addEventListener('timeupdate', tellPlayback)
       el.addEventListener('ended', onEnded)
-      el.addEventListener('error', onError)
+      el.addEventListener('error', (event) => {
+        // The element's own error, before or after play() answered: the code is what tells a format the
+        // browser can't take from a host that refused it.
+        const media = event?.target
+        if (media?.error) {
+          post({
+            qqProbe:
+              'PROBE audio error event: code ' +
+              media.error.code +
+              ' "' +
+              (media.error.message || '') +
+              '" | file ' +
+              (lastStream ? lastStream.filename : 'unknown') +
+              ' | src ' +
+              String(media.src || '').slice(0, 120),
+          })
+        }
+        onError()
+      })
     }
     return player.audio
   }
@@ -926,8 +949,52 @@
   const currentMid = () => player.queue[player.index] ?? null
 
   /** Whether this song may be taken into the cab's graph: a cab there, not given up, and the head known. */
+  /**
+   * Whether the songs' host lets the browser take them into a graph (`crossOrigin`): asked before a song
+   * is played through the cab, by asking for its first bytes the way the browser would. A host that
+   * answers wrongly makes the browser refuse the song outright (`MEDIA_ELEMENT_ERROR: Format error`,
+   * code 4) — so the cab is only taken where this says yes, and the song plays plainly where it doesn't
+   * (owner 2026-11-18: two players' QQ Music would not play at all).
+   *
+   * Kept by host (the vkey changes every song, the host's behaviour doesn't).
+   */
+  const corsHosts = new Map()
+  const corsOk = async (url) => {
+    let host = ''
+    try {
+      host = new URL(url).host
+    } catch {
+      return false
+    }
+    const known = corsHosts.get(host)
+    if (known !== undefined) return known
+    let ok = false
+    try {
+      const answer = await fetch(url, {
+        method: 'GET',
+        mode: 'cors',
+        credentials: 'omit',
+        headers: { Range: 'bytes=0-1023' },
+      })
+      // A real answer with the header the browser needs: the bytes are dropped, the permission isn't.
+      ok = answer.ok && Boolean(answer.headers.get('access-control-allow-origin'))
+      try {
+        await answer.body?.cancel()
+      } catch {}
+    } catch {
+      ok = false
+    }
+    corsHosts.set(host, ok)
+    post({ qqProbe: 'PROBE cors ' + host + ': ' + (ok ? 'allowed' : 'refused') })
+    return ok
+  }
+
+  /** Whether this song may be taken into the cab's graph: a cab there, not given up, the head known, and
+   * its host letting the browser have it. */
+  let thisSongInCab = false
+
   const takeIntoCab = () => {
-    throughCab = Boolean(sound) && !cabGaveUp && headReady
+    throughCab = Boolean(sound) && !cabGaveUp && headReady && thisSongInCab
   }
 
   /** How loud the cab's speakers play now in each ear (none: nothing was taken into it). */
@@ -1062,6 +1129,9 @@
       error.noStream = true
       throw error
     }
+    // Kept for what a failed play says: the layer's own name for the file (its prefix is the quality,
+    // its extension the format) tells a song WebView2 can't decode from a host that refused the request.
+    lastStream = { mid, filename: String(item.filename ?? ''), result: item.result, purl: String(item.purl) }
     return CDN + item.purl
   }
 
@@ -1132,8 +1202,9 @@
       const [meta, url] = await Promise.all([metaOf(mid), streamOf(mid)])
       if (token !== player.token) return // superseded by a newer play/skip
       player.track = meta
-      // The cab takes the song once the host has said where the driver's head is; until then it plays as
-      // it is (and neither does one whose host refused the browser's permission).
+      // The cab takes the song only where its host lets the browser have it (asked here, once per host):
+      // taken and refused, the browser wouldn't play it at all. Anything else plays as it is.
+      thisSongInCab = Boolean(sound) && !cabGaveUp && headReady && (await corsOk(url))
       takeIntoCab()
       const el = audio()
       // Paused before the source changes: handing a new address to an element that's playing makes it
@@ -1146,8 +1217,46 @@
           await el.play()
           checkAudible()
         } catch (error) {
-          post({ qqProbe: 'PROBE audio.play() FAILED: ' + (error && (error.name + ': ' + error.message)) })
+          // What the element itself says of it: code 4 is a source the browser can't use (a format
+          // it doesn't decode, or a host that answered with something that isn't audio); 2 is the
+          // network (a 403, a timeout). The two are different faults and are fixed differently.
+          const el_error = el.error
+          post({
+            qqProbe:
+              'PROBE audio.play() FAILED: ' +
+              (error && error.name + ': ' + error.message) +
+              ' | element ' +
+              (el_error ? 'code ' + el_error.code + ' "' + (el_error.message || '') + '"' : 'no error') +
+              ' | file ' +
+              (lastStream
+                ? lastStream.filename + ' (result ' + lastStream.result + ')'
+                : 'unknown') +
+              ' | crossOrigin ' +
+              (el.crossOrigin || 'none') +
+              ' | src ' +
+              String(el.src || '').slice(0, 160) +
+              ' | took ' +
+              (throughCab ? 'cab' : 'plain'),
+          })
           player.loading = false
+          // Taken into the cab and refused there (a host that answered wrongly, a graph that
+          // couldn't be made): given up for good, and this song played plainly instead. Without this
+          // the element stayed on the refused path and the song never played at all.
+          if (throughCab && !cabGaveUp) {
+            cabGaveUp = true
+            throughCab = false
+            post({ qqProbe: 'PROBE the cab refused the song; giving it up and playing plainly' })
+            const fresh = audio()
+            if (!fresh.paused) fresh.pause()
+            try {
+              if (player.audio !== fresh) {
+                player.audio?.remove?.()
+              }
+            } catch {}
+            player.audio = null
+            setTimeout(() => loadCurrent(autoplay), 0)
+            return
+          }
           tellPlayback()
         }
       }

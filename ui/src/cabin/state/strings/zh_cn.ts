@@ -516,7 +516,6 @@ export const strings: Strings = {
     youtubeMusic: 'QQ音乐',
     player: 'Player',
     safari: 'Safari',
-    podcasts: '蜻蜓FM',
     radio: '电台',
     phone: '电话',
     messages: '信息',

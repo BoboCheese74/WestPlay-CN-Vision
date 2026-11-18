@@ -21,7 +21,6 @@ export const SITE_NAMES: Record<WebAppSite, string> = {
   bilibili: 'Bilibili',
   qqMusic: 'QQ Music',
   netease: 'NetEase Cloud Music',
-  qingting: 'Qingting FM',
   douyin: 'Douyin',
   kugou: 'Kugou Music',
 }

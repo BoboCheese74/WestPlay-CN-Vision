@@ -1339,7 +1339,7 @@ export interface TrailerInfo {
  * (two seconds: owner 2026-11-03), the next song or the one before (or the song's start, past its first seconds). */
 
 /** A streaming site the web app shows (`westplay_host::webapp::Site`). */
-export type WebAppSite = 'bilibili' | 'qqMusic' | 'netease' | 'qingting' | 'douyin' | 'kugou'
+export type WebAppSite = 'bilibili' | 'qqMusic' | 'netease' | 'douyin' | 'kugou'
 
 /** What the WebApp app asks of its site's page (`westplay_host::webapp::Command`): the site to open, where the
  * page shows (the frame's pixels, under the page), and what it does. */

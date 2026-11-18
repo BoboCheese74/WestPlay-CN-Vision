@@ -32,7 +32,6 @@ pub enum Site {
     Bilibili,
     QqMusic,
     Netease,
-    Qingting,
     Douyin,
     Kugou,
 }
@@ -46,8 +45,6 @@ impl Site {
             // Its new web player (owner 2026-11-01), whose playbar is the old site's: its sign-in still opens
             // the old pages' dialog (weblogin.rs), signing in the cookies this page shares.
             Site::Netease => "https://music.163.com/st/webplayer",
-            // The old qingting.fm address redirects here; the pages themselves are qtfm.cn's.
-            Site::Qingting => "https://www.qtfm.cn/",
             Site::Douyin => "https://www.douyin.com/",
             Site::Kugou => "https://www.kugou.com/",
         }
@@ -60,7 +57,6 @@ impl Site {
             Site::Bilibili => "webview2-bilibili",
             Site::QqMusic => "webview2-qq-music",
             Site::Netease => "webview2-netease",
-            Site::Qingting => "webview2-qingting",
             Site::Douyin => "webview2-douyin",
             Site::Kugou => "webview2-kugou",
         }
@@ -72,7 +68,6 @@ impl Site {
             Site::Bilibili => "bilibili",
             Site::QqMusic => "qq music",
             Site::Netease => "netease",
-            Site::Qingting => "qingting",
             Site::Douyin => "douyin",
             Site::Kugou => "kugou",
         }
@@ -84,7 +79,6 @@ impl Site {
             Site::Bilibili => "Bilibili",
             Site::QqMusic => "QQ Music",
             Site::Netease => "NetEase Cloud Music",
-            Site::Qingting => "Qingting FM",
             Site::Douyin => "Douyin",
             Site::Kugou => "Kugou Music",
         }
@@ -110,12 +104,6 @@ impl Site {
             Site::Bilibili => {
                 title.strip_suffix("_哔哩哔哩_bilibili").or_else(|| title.strip_suffix(" - 哔哩哔哩")).unwrap_or(title)
             }
-            // Its pages end the title with the site's own name ("…-鬼点灯后传【周建龙演播】-蜻蜓FM听小说"): the app's
-            // bar keeps the page's own part.
-            Site::Qingting => {
-                let tail = title.rfind("-蜻蜓FM").or_else(|| title.rfind("_蜻蜓FM"));
-                tail.map_or(title, |at| &title[..at])
-            }
             // QQ Music and NetEase leave their titles as they are: an artist's name is the page's own. Douyin's
             // clips end with the site's own name ("… - 抖音"), which its reader drops before the title is ever
             // given here (Kugou Music is read above).
@@ -131,7 +119,6 @@ impl Site {
             Site::Bilibili => "bilibili",
             Site::QqMusic => "qqMusic",
             Site::Netease => "netease",
-            Site::Qingting => "qingting",
             Site::Douyin => "douyin",
             Site::Kugou => "kugou",
         }
@@ -970,7 +957,6 @@ mod tests {
     fn reads_the_pages_commands() {
         let read = |text: &str| serde_json::from_str::<Command>(text).ok();
         assert_eq!(read(r#"{"action":"open","site":"bilibili"}"#), Some(Command::Open { site: Site::Bilibili }));
-        assert_eq!(read(r#"{"action":"open","site":"qingting"}"#), Some(Command::Open { site: Site::Qingting }));
         assert_eq!(read(r#"{"action":"open","site":"douyin"}"#), Some(Command::Open { site: Site::Douyin }));
         assert_eq!(read(r#"{"action":"open","site":"kugou"}"#), Some(Command::Open { site: Site::Kugou }));
         assert_eq!(
@@ -998,7 +984,7 @@ mod tests {
 
     #[test]
     fn each_site_is_its_own_page_and_profile() {
-        let sites = [Site::Bilibili, Site::QqMusic, Site::Netease, Site::Qingting, Site::Douyin, Site::Kugou];
+        let sites = [Site::Bilibili, Site::QqMusic, Site::Netease, Site::Douyin, Site::Kugou];
         for (index, site) in sites.iter().enumerate() {
             assert!(site.home().starts_with("https://"));
             for other in &sites[index + 1..] {
@@ -1028,12 +1014,6 @@ mod tests {
             Site::Bilibili.clean_title("哔哩哔哩 (゜-゜)つロ 干杯~-bilibili"),
             "哔哩哔哩 (゜-゜)つロ 干杯~-bilibili"
         );
-        // Qingting FM's own tail goes, the channel it keeps: its page names the site after the program's channel.
-        assert_eq!(
-            Site::Qingting.clean_title("诡吹灯续·四部合集 片花-鬼点灯后传【周建龙演播】-蜻蜓FM听小说"),
-            "诡吹灯续·四部合集 片花-鬼点灯后传【周建龙演播】"
-        );
-        assert_eq!(Site::Qingting.clean_title("A station_蜻蜓FM"), "A station");
         // An artist's name is the page's own: nothing of it dropped.
         assert_eq!(Site::QqMusic.clean_title("A song - An artist - QQ音乐"), "A song - An artist - QQ音乐");
         assert_eq!(Site::Netease.clean_title("  A song\n- An artist  "), "A song - An artist");

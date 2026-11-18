@@ -36,7 +36,7 @@
    * site's own controls: the cabin sends a press to every document at once (`westplay` posts to the WebView, all
    * its tabs), so a second document answering it skipped two songs per press (owner 2026-11-10).
    */
-  const SITES = /(^|\.)(bilibili\.com|qq\.com|music\.163\.com|qtfm\.cn|douyin\.com|kugou\.com)$/i
+  const SITES = /(^|\.)(bilibili\.com|qq\.com|music\.163\.com|douyin\.com|kugou\.com)$/i
   const siteDocument = SITES.test(location.hostname)
   const webview = window.chrome?.webview
   if (!webview) return
@@ -673,11 +673,6 @@
 
   /** 蜻蜓FM's player bar keeps its transport in icons that say nothing of themselves: `div.prev`,
    * `div.play-pause`, `div.next` (webapp.js below, `button`). */
-  const QT_BUTTONS = {
-    previous: '.player-wrapper .prev',
-    playPause: '.player-wrapper .play-pause',
-    next: '.player-wrapper .next',
-  }
 
   /** Kugou Music's player bar draws its transport as three links with no words at all (`a#prev`, `a#toggle`,
    * `a#next`, their icons' own class the only mark): its ids are the site's own, and they've not changed in
@@ -721,10 +716,6 @@
   /** The button that does `action`: a site's own known control where it names none (蜻蜓FM's bar), else the
    * shortest name that says it, among the things that can be pressed, else the control whose class says it. */
   const button = (action) => {
-    if (/(^|\.)qtfm\.cn$/.test(location.hostname)) {
-      const known = document.querySelector(QT_BUTTONS[action])
-      if (known) return known
-    }
     if (/(^|\.)kugou\.com$/.test(location.hostname)) {
       const known = document.querySelector(KG_BUTTONS[action])
       if (known) return known
@@ -1618,36 +1609,6 @@
     return icon.getAttribute('aria-label')
   }
 
-  // ---- 蜻蜓FM's own markup ----------------------------------------------------------------
-  // Its pages set no Media Session: its player bar draws what it plays — the program (`.program-title`), who
-  // it's by (`.podcaster`), the channel (`.channel-title`), its cover (`img.cover`) and where it is in it
-  // (`.time-elapsed` / `.time-total`). Its sound is an element it keeps out of the document (`player`).
-  const qingting = () => {
-    if (!/(^|\.)qtfm\.cn$/.test(location.hostname)) return null
-    const bar = document.querySelector('.player-wrapper')
-    const title = bar?.querySelector('.program-title')?.textContent?.trim()
-    if (!title) return null
-    const cover = bar.querySelector('img.cover')
-    const src = cover?.getAttribute('src') || cover?.currentSrc || null
-    let artwork = null
-    if (src) {
-      try {
-        artwork = new URL(src, location.href).href
-      } catch {}
-    }
-    return {
-      title,
-      artist:
-        bar.querySelector('.podcaster')?.textContent?.trim() ||
-        bar.querySelector('.channel-title')?.textContent?.trim() ||
-        '',
-      artwork,
-      mid: null,
-      // Its play button says it (pause ⇄ playing), as the bar's cover and clock change with it.
-      playing: /(^|\s)playing(\s|$)/.test(bar.querySelector('.play-pause')?.className ?? ''),
-    }
-  }
-
   // ---- Douyin's own page ---------------------------------------------------------------------
   // Its player is the page's own element (`video`), so what plays is read there and whether it plays too. The
   // feed's page says the site's own name in its title and nothing of the clip, while a clip's own page says the
@@ -2280,8 +2241,7 @@
       const own =
         bili ??
         qqMusic() ??
-        qingting() ??
-        kugou() ??
+            kugou() ??
         douyin() ??
         netease() ??
         (fromApi !== null && Date.now() - fromApi.at < 120000 ? fromApi : null)

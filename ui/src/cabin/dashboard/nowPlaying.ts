@@ -1,5 +1,5 @@
 /** What the Dashboard's Now Playing can show: YouTube's video, the web app's site (QQ Music, NetEase Cloud
- * Music, Bilibili, Qingting FM), the Spotify app, Apple Music (the Music app), YouTube Music, or Player. In this
+ * Music, Bilibili), the Spotify app, Apple Music (the Music app), YouTube Music, or Player. In this
  * order when two play at once. */
 export const NOW_PLAYING_ORDER = [
   'video',

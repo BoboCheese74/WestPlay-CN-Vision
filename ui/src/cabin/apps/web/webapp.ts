@@ -15,7 +15,7 @@ import type { AppId } from '../../state/apps'
 
 /**
  * The web app's state: the site its page shows (westplay_host::webapp: Bilibili, QQ Music, NetEase Cloud
- * Music, Qingting FM, Douyin, Kugou Music, each its own whole site in a WebView of its own), that page's own
+ * Music, Douyin, Kugou Music, each its own whole site in a WebView of its own), that page's own
  * title, where the page shows through the cabin page (the WebApp app cuts itself open there, Shell.tsx), and
  * what it plays.
  */
@@ -190,7 +190,6 @@ export const APP_OF_SITE: Record<WebAppSite, AppId> = {
   bilibili: 'youtube',
   qqMusic: 'youtubeMusic',
   netease: 'spotify',
-  qingting: 'podcasts',
   douyin: 'douyin',
   kugou: 'kugou',
 }

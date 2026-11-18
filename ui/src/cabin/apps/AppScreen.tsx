@@ -83,7 +83,7 @@ function AppContent({ app }: { app: AppId }) {
     case 'music':
       return <MusicApp />
     // The sites, whole, in the host's WebView under this page: NetEase Cloud Music, Bilibili, QQ Music,
-    // Qingting FM, Douyin and Kugou Music (apps/web, westplay_host::webapp). Each keeps the id of the app it
+    // Douyin and Kugou Music (apps/web, westplay_host::webapp). Each keeps the id of the app it
     // stands in for (the older app's slot, its icon and its name being the site's now).
     case 'spotify':
       return <WebApp site="netease" />
@@ -93,8 +93,6 @@ function AppContent({ app }: { app: AppId }) {
       // QQ Music's own player (crates/host qq_music.rs, ui/src/cabin/apps/qq): WestPlay's drawn shell
       // over a hidden page of the middle layer's own data.
       return <QqApp />
-    case 'podcasts':
-      return <WebApp site="qingting" />
     case 'douyin':
       return <WebApp site="douyin" />
     case 'kugou':

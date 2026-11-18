@@ -208,7 +208,7 @@ function SpotifyWidget({ spotify }: { spotify: NonNullable<ReturnType<typeof use
   )
 }
 
-/** The web app's site (QQ Music's, NetEase Cloud Music's, Bilibili's or Qingting FM's own page): the song it
+/** The web app's site (QQ Music's, NetEase Cloud Music's, Bilibili's or Douyin'sng FM's own page): the song it
  * plays, its cover and the line of its words it's at, opening the app that shows it; its play/pause works on
  * the page itself, and the lyrics button comes with a song's own words (`wordsAreSongs`: Kugou Music's too, as
  * its own player keeps the whole of them). */

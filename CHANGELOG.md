@@ -3,6 +3,26 @@
 What changed in each release of WestPlay. The newest release's notes are what the app shows when it offers the
 update.
 
+## 2.4.2 (2026-11-18)
+
+### 新功能
+
+- **Live Radio（电台应用）** —— 感谢 **@juner122king**（PR #4）：一个独立的电台应用，在宿主的隐藏页里
+  跑喜马拉雅电台目录，HLS 直播流，有自己的封面、节目表与「正在播放」页。它取代了原来的蜻蜓 FM：
+  蜻蜓 FM 是网页版（`qtfm.cn` 一个整页 WebView），电台是宿主自己的实现，界面与座舱一致 ——
+  （owner 2026-11-18 决定：把蜻蜓 FM 直接换成 Live FM）。
+- **局域网手机遥控（LAN WebUI）** —— 感谢 **@LahantziBade**（PR #3）：可选开启，用手机浏览器
+  在同一局域网内控制座舱（点按/滑动），设置里有配对地址与开关，默认关闭。
+
+### 修复
+
+- QQ 音乐中间层的端口：8080 被别的程序占着时（玩家的机器上常是 `steamwebhelper`），原来会
+  误以为中间层已在运行而不启动，QQ 音乐一直「载入失败」。现在先确认应答的是不是我们的层
+  （`/openapi.json` 的 `QQMusic API`），不是就改用 18080 起的下一个空闲端口，日志写明被谁占用。
+- QQ 音乐的空间音频：播放前先探测歌曲地址是否允许跨域，不允许就普通播放（浏览器报
+  `MEDIA_ELEMENT_ERROR: Format error` 的那批玩家）；万一仍然失败，自动放弃空间音频、用普通方式
+  重播这一首，不再整首歌放不出来。
+
 ## 2.4.1 (2026-11-17)
 - Liquid Glass, as on iOS 26: the sidebar, the Dashboard's widgets, Apple Music's bar, buttons, mini player and
   menus, the map's buttons and search, the keyboard and the volume pill are glass again, made the way Apple's is.

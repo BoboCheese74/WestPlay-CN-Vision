@@ -20,7 +20,7 @@ const AS_RUN: Record<string, string[]> = {
   'YouTube Music': [cabSound, youtubeMusic],
   Spotify: [cabSound, spotify],
   "Apple Music's sign-in": [appleMusicSignIn],
-  // The web app's sites (Bilibili, QQ Music, NetEase Cloud Music, Qingting FM): the truck speakers' script
+  // The web app's sites (Bilibili, QQ Music, NetEase Cloud Music): the truck speakers' script
   // first too (the site's sound through them, where the browser lets it), then the host's own.
   'Web app': [cabSound, webapp],
   Radio: [cabSound, radioHls, radio],

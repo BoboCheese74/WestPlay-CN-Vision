@@ -14,7 +14,7 @@ import { type NowPlayingSource, shownSource } from './nowPlaying'
 let lastPlayed: NowPlayingSource | null = null
 
 /**
- * What the web app's site plays (QQ Music's, NetEase Cloud Music's, Bilibili's or Qingting FM's own page), as
+ * What the web app's site plays (QQ Music's, NetEase Cloud Music's, Bilibili's or Douyin'sng FM's own page), as
  * Now Playing shows it: the song the site's Media Session says plays (or its player bar draws), its cover, and
  * the line of its words the page's own lyrics put it at (westplay_host::webapp).
  */

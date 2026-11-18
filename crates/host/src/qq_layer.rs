@@ -11,11 +11,22 @@
 //! player needs no Python of their own.
 
 use std::path::{Path, PathBuf};
+use std::net::{SocketAddr, TcpStream};
+use std::sync::atomic::{AtomicU16, Ordering};
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
 /// The port the layer serves on (`config.toml`'s `server.port`, and qq_music.js's `BASE`).
-const PORT: u16 = 8080;
+pub const PORT: u16 = 8080;
+
+/// The port the layer is answering on this run (the one `start` chose: [`PORT`] unless something else
+/// had it). QQ Music's hidden page asks it there (`qq_music.rs`), which starts after the layer.
+static SERVING: AtomicU16 = AtomicU16::new(PORT);
+
+/// The port the layer answers on this run ([`PORT`] until one was started or found).
+pub fn serving_port() -> u16 {
+    SERVING.load(Ordering::Acquire)
+}
 
 /// How long to wait for the layer to answer before saying it didn't start.
 const READY_TIMEOUT: Duration = Duration::from_secs(20);
@@ -25,19 +36,24 @@ pub fn folder(resources: &Path) -> PathBuf {
     resources.join("qq-music-layer")
 }
 
-/// The layer, running: its process, and where its folder is.
+/// The layer, running: its process, where its folder is, and the port it answers on.
 pub struct Layer {
     child: Child,
     folder: PathBuf,
+    port: u16,
 }
 
 impl Layer {
     /// Starts the layer in `folder` (the shipped `qq-music-layer`), or `None` if it couldn't: its
     /// interpreter is gone, or the process didn't start.
     pub fn start(folder: &Path) -> Option<Self> {
-        // Already one answering (a WestPlay left running, or a player's own): its own is not needed.
-        if port_open() {
+        // Already ours answering (a WestPlay left running, or a player's own): its own is not needed.
+        // A port that merely answers isn't enough — 8080 is a busy one, and Steam's own browser
+        // (`steamwebhelper`) holds it on players' PCs: taking that for the layer left the app's page
+        // asking Steam for its songs (owner 2026-11-17, a player whose QQ Music said "couldn't load").
+        if ours_is_serving(PORT) {
             crate::log!("[qq layer] already serving on {PORT}");
+            SERVING.store(PORT, Ordering::Release);
             return None;
         }
         let python = plain(folder.join("python").join("python.exe"));
@@ -56,9 +72,17 @@ impl Layer {
             crate::log!("[qq layer] not shipped: no run.py or run.pyc in {}", web.display());
             return None;
         };
+        // The port to answer on: 8080 unless something else has it (the layer takes
+        // `QQMUSIC_SERVER_PORT`), then the next free one of its own.
+        let (port, why) = free_port();
+        if let Some(why) = why {
+            crate::log!("[qq layer] {why}");
+        }
+        SERVING.store(port, Ordering::Release);
         let child = Command::new(&python)
             .arg(&run)
             .current_dir(&web)
+            .env("QQMUSIC_SERVER_PORT", port.to_string())
             // Its own console is hidden: nothing of it shows in the cab.
             .stdin(Stdio::null())
             .stdout(Stdio::null())
@@ -70,16 +94,18 @@ impl Layer {
         let mut layer = Self {
             child,
             folder: folder.to_owned(),
+            port,
         };
         // Ends with WestPlay's own process, however it goes (see `end_with_parent`).
         let tied = layer.end_with_parent();
         if !layer.wait_ready() {
-            crate::log!("[qq layer] no answer on {PORT} after {READY_TIMEOUT:?}");
+            crate::log!("[qq layer] no answer on {port} after {READY_TIMEOUT:?}");
             layer.stop();
             return None;
         }
         crate::log!(
-            "[qq layer] serving on {PORT} ({}), ends with WestPlay: {tied}",
+            "[qq layer] serving on {} ({}), ends with WestPlay: {tied}",
+            layer.port,
             folder.display()
         );
         Some(layer)
@@ -89,7 +115,7 @@ impl Layer {
     fn wait_ready(&mut self) -> bool {
         let started = Instant::now();
         while started.elapsed() < READY_TIMEOUT {
-            if port_open() {
+            if ours_is_serving(self.port) {
                 return true;
             }
             // The process died (a broken install): no point waiting longer.
@@ -104,6 +130,11 @@ impl Layer {
     /// Where the layer's folder is (its accounts and config are there).
     pub fn folder(&self) -> &Path {
         &self.folder
+    }
+
+    /// The port it answers on (the page asks it there: `qq_music.rs`).
+    pub fn port(&self) -> u16 {
+        self.port
     }
 
     /// Ends its process, and the one it made of its own (uvicorn keeps none: its worker is its own).
@@ -185,8 +216,93 @@ fn plain(path: PathBuf) -> PathBuf {
 
 /// Whether something answers on the layer's port now (a plain connect: the layer's own `/` says
 /// nothing more).
+/// The ports the layer may answer on, in order: 8080, the one WestPlay has always used, then the ones
+/// it moves to when something else has that (Steam's own browser does, on players' PCs).
+const PORTS: &[u16] = &[PORT, 18080, 18081, 18082, 18083];
+
+/// The first of [`PORTS`] nothing is listening on, and why 8080 wasn't taken when it wasn't (`None`:
+/// it was free).
+fn free_port() -> (u16, Option<String>) {
+    let holder = holder_of(PORT);
+    for &port in PORTS {
+        if !port_open_on(port) {
+            let why = if port == PORT {
+                None
+            } else {
+                Some(format!(
+                    "{PORT} is taken{}, the layer answers on {port} instead",
+                    holder.as_deref().map(|name| format!(" by {name}")).unwrap_or_default()
+                ))
+            };
+            return (port, why);
+        }
+    }
+    // Every one of them taken: the last, and the layer says why it couldn't start.
+    (
+        *PORTS.last().unwrap_or(&PORT),
+        Some(format!("every port of {PORTS:?} is taken")),
+    )
+}
+
+/// What has the port, as `steamwebhelper.exe (41860)` (`None`: nothing, or it couldn't be named).
+fn holder_of(port: u16) -> Option<String> {
+    let output = Command::new("netstat").args(["-ano", "-p", "TCP"]).output().ok()?;
+    let text = String::from_utf8_lossy(&output.stdout);
+    let local = format!(":{port} ");
+    let pid = text
+        .lines()
+        .find(|line| line.contains(&local) && line.contains("LISTENING"))
+        .and_then(|line| line.split_whitespace().last())
+        .and_then(|pid| pid.parse::<u32>().ok())?;
+    let name = Command::new("tasklist")
+        .args(["/FI", &format!("PID eq {pid}"), "/FO", "CSV", "/NH"])
+        .output()
+        .ok()
+        .map(|output| String::from_utf8_lossy(&output.stdout).to_string())
+        .and_then(|text| text.split(',').next().map(|name| name.trim_matches('"').to_owned()))
+        .filter(|name| !name.is_empty())?;
+    Some(format!("{name} ({pid})"))
+}
+
+/// Whether the layer itself answers on `port`: a port that merely connects isn't it (Steam's browser
+/// holds 8080 on players' PCs).
+fn ours_is_serving(port: u16) -> bool {
+    let Some(body) = http_get(port, "/openapi.json") else {
+        return false;
+    };
+    body.contains("QQMusic API")
+}
+
+/// A plain HTTP GET of `path` on `127.0.0.1:port`, its body (`None`: nothing answered).
+fn http_get(port: u16, path: &str) -> Option<String> {
+    use std::io::{Read, Write};
+    let address = SocketAddr::from(([127, 0, 0, 1], port));
+    let mut stream = TcpStream::connect_timeout(&address, Duration::from_millis(600)).ok()?;
+    let _ = stream.set_read_timeout(Some(Duration::from_millis(1500)));
+    let request = format!("GET {path} HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n");
+    stream.write_all(request.as_bytes()).ok()?;
+    let mut body = Vec::new();
+    let mut chunk = [0u8; 4096];
+    // The whole of it is not needed: the answer says what it is early on.
+    while let Ok(read) = stream.read(&mut chunk) {
+        if read == 0 {
+            break;
+        }
+        body.extend_from_slice(&chunk[..read]);
+        if body.len() > 64 * 1024 {
+            break;
+        }
+    }
+    Some(String::from_utf8_lossy(&body).to_string())
+}
+
+/// Whether anything answers on `port`.
+fn port_open_on(port: u16) -> bool {
+    let address = SocketAddr::from(([127, 0, 0, 1], port));
+    TcpStream::connect_timeout(&address, Duration::from_millis(300)).is_ok()
+}
+
 fn port_open() -> bool {
-    use std::net::{SocketAddr, TcpStream};
     let address = SocketAddr::from(([127, 0, 0, 1], PORT));
     TcpStream::connect_timeout(&address, Duration::from_millis(300)).is_ok()
 }
