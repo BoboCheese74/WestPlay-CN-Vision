@@ -18,7 +18,7 @@ import type { Settings } from './useSettings'
  * - `?update`: an update found (its sheet offers it; installing it downloads, then stays installing).
  * - `?custom`: some wallpapers and an icon set of the player's (adding gives more, with a file left out).
  * - `?leftOut`: the played profile's map made without a map mod it couldn't read.
- * - `?elevated`: the game run as administrator (WestPlay can't read its route, guidance or weather).
+ * - `?elevated`: the game runs with higher privileges than WestPlay.
  * - `?updated` (or `?updated=admin`): WestPlay updated since it was set up: the new plugin goes into the game
  *   once it's closed (with `admin`, Windows' permission is asked for first).
  *

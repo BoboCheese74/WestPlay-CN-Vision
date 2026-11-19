@@ -29,6 +29,17 @@ export interface RouteNode {
 export type Spans = Point[][]
 
 /**
+ * Splits the drawn route at the next stop. `spans` runs in the game's route order and `end` is the
+ * stop's map node index, which is also the index of the first span that leaves it. A missing or
+ * out-of-range index leaves the whole route active.
+ * @returns The spans through the next stop and the spans after it, in route order.
+ */
+export function splitRoute(spans: Spans, end: number | null | undefined): { active: Spans; future: Spans } {
+  if (end == null || !Number.isInteger(end) || end < 0 || end >= spans.length) return { active: spans, future: [] }
+  return { active: spans.slice(0, end), future: spans.slice(end) }
+}
+
+/**
  * The route's spans: the ways through junctions where `paths` has them (by the node each starts at, already
  * ending where the route runs), the road curve elsewhere, moved `shifts` metres to the right of the way
  * the route goes at each of its nodes (easing between them). A node's direction is the road's, which may

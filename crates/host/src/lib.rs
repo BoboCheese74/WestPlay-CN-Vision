@@ -123,8 +123,8 @@ pub struct Status {
     /// from the save's fitted parts). `None` in a truck, with no game, or before the coach's parts are
     /// read: the companion's Coach speakers is greyed out then (owner 2026-11-13).
     pub coach_speakers: Option<u32>,
-    /// Whether the game runs as administrator: WestPlay can't read its route, guidance or weather then
-    /// ([`is_elevated`]), and the player is told to start it normally.
+    /// Whether the game runs with higher privileges than WestPlay. Direct readers (such as weather)
+    /// can be limited by Windows. A compatible game plugin publishes its own route snapshots.
     pub game_elevated: bool,
     /// Whether the game's own WestPlay plugin is another build's: it can't be seen at all then (every build's
     /// bridge is a name of its own), and WestPlay puts its own in as soon as the game closes
@@ -782,7 +782,7 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
                 // upstream's says elevated whenever the game is).
                 game_elevated = is_elevated(pid) && !is_elevated(std::process::id());
                 if game_elevated {
-                    log!("the game runs as administrator: WestPlay can't read its route, guidance or weather");
+                    log!("the game runs as administrator: direct game readers may be restricted by Windows");
                 }
             }
             let under_truckersmp = if !running {
@@ -1092,7 +1092,7 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
                 }
                 RouteUpdate::Paths { .. } => route_paths_message = Some(message.clone()),
                 RouteUpdate::Offered { .. } => {}
-                RouteUpdate::Route { id, nodes, waypoints } => {
+                RouteUpdate::Route { id, nodes, waypoints, .. } => {
                     route_number = Some(id);
                     route_uids = Some(nodes.iter().map(|node| node.uid).collect());
                     route_waypoints = waypoints;
@@ -1660,7 +1660,7 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
                     }
                 }
             } else if since.elapsed() >= Duration::from_secs(6) {
-                // The game took it, but its route can't be read in a game run as administrator: said so.
+                // With an elevated game, an older plugin can accept the route without a readable reply.
                 let answer = if game_elevated { "elevated" } else { "noAnswer" };
                 let _ = webview.post_json(&followed_message(follow.id, false, answer));
                 following = None;
@@ -2613,10 +2613,8 @@ fn is_shown(game: u32) -> bool {
     looking.shown
 }
 
-/// Whether the process `game` (its pid) runs as administrator (elevated), as Task Manager's "Elevated" says: then
-/// Windows keeps WestPlay out of it, and the game's route, guidance and weather can't be read. WestPlay doesn't
-/// work with a game run that way (owner 2026-10-28: nothing that reaches into an elevated game); the player is
-/// told. A token WestPlay isn't let read counts as elevated: it's kept out all the same.
+/// Whether the process `game` runs as administrator. A token Windows denies access to also counts as elevated
+/// when reporting limitations of direct game readers.
 fn is_elevated(game: u32) -> bool {
     use windows::Win32::Foundation::{CloseHandle, E_ACCESSDENIED, HANDLE};
     use windows::Win32::Security::{GetTokenInformation, TOKEN_ELEVATION, TOKEN_QUERY, TokenElevation};
@@ -3283,12 +3281,13 @@ fn route_message_for(update: &RouteUpdate) -> String {
         shifts.iter().map(|&(node, shift)| (node, (shift * 100.0).round() / 100.0)).collect()
     };
     match update {
-        RouteUpdate::Route { id, nodes, .. } => {
+        RouteUpdate::Route { id, nodes, coach_stops, .. } => {
             let nodes: Vec<[f32; 6]> = nodes
                 .iter()
                 .map(|n| [n.position[0], n.position[1], n.forward[0], n.forward[1], n.distance_left, n.height])
                 .collect();
-            serde_json::json!({ "type": "route", "id": id, "nodes": nodes }).to_string()
+            serde_json::json!({ "type": "route", "id": id, "nodes": nodes, "activeEnd": coach_stops.first(), "coachStops": coach_stops })
+                .to_string()
         }
         RouteUpdate::Paths { id, paths, maneuvers, shifts } => {
             let maneuvers: Vec<serde_json::Value> = maneuvers
@@ -3809,9 +3808,23 @@ mod tests {
         use westplay_mapdata::junctions::{Maneuver, Turn};
         let node = RouteNode { position: [1.0, 2.0], height: 3.0, forward: [0.0, -1.0], uid: 7, distance_left: 1500.0 };
         assert_eq!(
-            super::route_message_for(&RouteUpdate::Route { id: 5, nodes: vec![node], waypoints: vec![] }),
-            r#"{"id":5,"nodes":[[1.0,2.0,0.0,-1.0,1500.0,3.0]],"type":"route"}"#
+            super::route_message_for(&RouteUpdate::Route {
+                id: 5,
+                nodes: vec![node],
+                waypoints: vec![],
+                coach_stops: vec![]
+            }),
+            r#"{"activeEnd":null,"coachStops":[],"id":5,"nodes":[[1.0,2.0,0.0,-1.0,1500.0,3.0]],"type":"route"}"#
         );
+        let coach_route: serde_json::Value = serde_json::from_str(&super::route_message_for(&RouteUpdate::Route {
+            id: 6,
+            nodes: vec![node; 5],
+            waypoints: vec![],
+            coach_stops: vec![1, 2, 3],
+        }))
+        .unwrap();
+        assert_eq!(coach_route["activeEnd"], 1);
+        assert_eq!(coach_route["coachStops"], serde_json::json!([1, 2, 3]));
         assert_eq!(super::route_message_for(&RouteUpdate::Next(3)), r#"{"next":3,"type":"routeNext"}"#);
         assert_eq!(
             super::route_message_for(&RouteUpdate::Paths {

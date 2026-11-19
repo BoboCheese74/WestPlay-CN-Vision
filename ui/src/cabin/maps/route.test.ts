@@ -13,6 +13,8 @@ import {
   type RouteNode,
   routeSpans,
   snapToRoute,
+  splitRoute,
+  type Spans,
   type SurfaceAt,
 } from './route'
 
@@ -117,6 +119,54 @@ describe('progress', () => {
 
   it('has no progress without a route', () => {
     expect(progressOf([], 0, [0, 0])).toBeNull()
+  })
+})
+
+describe('the coach route', () => {
+  const spans: Spans = [
+    [
+      [0, 0],
+      [40, 0],
+    ],
+    [
+      [40, 0],
+      [60, 10],
+    ],
+    [
+      [60, 10],
+      [60, 10],
+    ],
+    [
+      [60, 10],
+      [40, 0],
+    ],
+    [
+      [40, 0],
+      [0, 0],
+    ],
+  ]
+
+  it('ends the bright line at the marked arrival and excludes the return road from position matching', () => {
+    const { active, future } = splitRoute(spans, 2)
+    expect(restLine(active, -1)).toEqual([
+      [0, 0],
+      [40, 0],
+      [60, 10],
+    ])
+    expect(restLine(future, -1)).toEqual([
+      [60, 10],
+      [60, 10],
+      [40, 0],
+      [0, 0],
+    ])
+    expect(progressOf(active, 1, [20, 0], [-1, 0])?.span).toBe(0)
+  })
+
+  it('keeps the return line muted at a pending stop and brightens it when the next route arrives', () => {
+    const returning = spans.slice(3)
+    expect(splitRoute(returning, 0)).toEqual({ active: [], future: returning })
+    expect(splitRoute(returning, null)).toEqual({ active: returning, future: [] })
+    expect(splitRoute(returning, 4)).toEqual({ active: returning, future: [] })
   })
 })
 

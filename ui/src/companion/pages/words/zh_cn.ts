@@ -78,7 +78,7 @@ export const words: CompanionWords = {
     displayFirstDetail: 'WestPlay 优先显示在平板上，即使卡车自己的屏幕也显示它。',
     elevated: {
       title: '游戏正以管理员身份运行',
-      text: '这样 WestPlay 无法读取游戏的路线、导航和天气。请正常启动游戏，不要以管理员身份运行。',
+      text: '更新游戏插件后，WestPlay 用普通权限也能读取路线。实时天气仍可能受系统权限限制。',
     },
     banners: {
       live: { title: '已连接', text: 'WestPlay 已显示在卡车屏幕上' },

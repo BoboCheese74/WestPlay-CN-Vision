@@ -512,6 +512,10 @@ export interface LiveState {
   route: {
     id: number
     nodes: RouteNode[]
+    /** The next coach stop's map node index. Without it the whole remaining route is active. */
+    activeEnd?: number | null
+    /** Map node indices of the remaining intermediate coach stops. */
+    coachStops?: readonly number[]
     distances: number[]
     /** How high each node is in the game, metres. */
     heights: number[]
@@ -732,6 +736,8 @@ function receiveHostMessage(now: () => number): (message: HostMessage) => void {
               : {
                   id: message.id,
                   nodes: message.nodes.map(([x, z, fx, fz]) => ({ position: [x, z], forward: [fx, fz] })),
+                  activeEnd: message.activeEnd,
+                  coachStops: message.coachStops,
                   distances: message.nodes.map((node) => node[4]),
                   heights: message.nodes.map((node) => node[5]),
                   paths: new Map(),

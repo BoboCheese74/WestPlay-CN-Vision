@@ -50,6 +50,7 @@ import {
   routeHeights,
   routeSpans,
   snapToRoute,
+  splitRoute,
   type Spans,
 } from './route'
 import {
@@ -62,6 +63,7 @@ import {
   PLAYERS_SOURCE,
   paintFor,
   placeImagesFor,
+  ROUTE_FUTURE_SOURCE,
   ROUTE_HEAD_SOURCE,
   ROUTE_SOURCE,
   TRAFFIC_SOURCE,
@@ -133,11 +135,15 @@ interface LiveMap {
   puckHeight: number
   /** The end of the route. */
   destination: maplibregl.Marker
+  /** The remaining intermediate coach waypoints by their route node index. */
+  waypoints: Map<number, { marker: maplibregl.Marker; point: Point }>
   /** The route drawn (`route`, as the store has it), as spans, with the span the rest of it is drawn after
    * and where its head was last drawn from (`null`: not drawn yet). */
   routeShown: {
     route: LiveState['route']
     spans: Spans
+    active: Spans
+    future: Spans
     restAfter: number | null
     headFrom: Point | null
     /** How high its points are drawn, as of which of `raised`'s tiles, and its stretches over the flat map. */
@@ -145,6 +151,7 @@ interface LiveMap {
     heightsFor: number | null
     restRaised: RaisedLine[]
     headRaised: RaisedLine[]
+    futureRaised: RaisedLine[]
   } | null
   /** Where the truck is along the route this frame (`null`: no route). */
   progress: Progress | null
@@ -332,11 +339,6 @@ function create(data: MapData, appearance: Appearance): LiveMap {
   destinationElement.className = 'map-destination'
   destinationElement.innerHTML =
     '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 21V4.2c3.6-1.9 6.6 1.6 11 0v8.6c-4.4 1.6-7.4-1.9-11 0" fill="currentColor" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>'
-  const destination = new maplibregl.Marker({
-    element: destinationElement,
-    pitchAlignment: 'viewport',
-    rotationAlignment: 'viewport',
-  })
 
   const raised = data.raised ? raisedRoads(map, data.raised, () => created.painted) : null
   raised?.setShown(useCabin.getState().mapRoads)
@@ -350,7 +352,8 @@ function create(data: MapData, appearance: Appearance): LiveMap {
     meshes,
     puckHeight: 0,
     puck,
-    destination,
+    destination: routeMarker(destinationElement),
+    waypoints: new Map(),
     routeShown: null,
     progress: null,
     trafficLight: null,
@@ -687,7 +690,7 @@ function syncRouteTraffic(target: LiveMap, now: number) {
   }
   if (!target.ahead || now - target.aheadTold >= AHEAD_EVERY) {
     target.aheadTold = now
-    target.ahead = routeAhead(shown.spans, progress.span, TRAFFIC_AHEAD)
+    target.ahead = routeAhead(shown.active, progress.span, TRAFFIC_AHEAD)
     target.aheadShown = null
     setRouteAhead(corridorOf(target.ahead))
   }
@@ -1147,54 +1150,126 @@ function syncCanopies(target: LiveMap, now: number) {
  * there, and the next frame tries again.
  */
 function syncRoute(target: LiveMap, now: number) {
-  const { map, destination } = target
+  const { map } = target
   const rest = map.getSource<GeoJSONSource>(ROUTE_SOURCE)
   const head = map.getSource<GeoJSONSource>(ROUTE_HEAD_SOURCE)
+  const future = map.getSource<GeoJSONSource>(ROUTE_FUTURE_SOURCE)
   target.progress = null
-  if (!rest || !head) return
+  if (!rest || !head || !future) return
   const { route, routeNext } = useLive.getState()
-  if (target.routeShown?.route !== route) {
-    target.routeShown = {
-      route,
-      spans: route ? routeSpans(route.nodes, route.paths, route.shifts) : [],
-      restAfter: null,
-      headFrom: null,
-      heights: new Map(),
-      heightsFor: null,
-      restRaised: [],
-      headRaised: [],
-    }
-    const end = route?.nodes.at(-1)
-    if (end) {
-      destination.setLngLat(toLngLat(...end.position))
-      if (!destination.getElement().isConnected) destination.addTo(map)
-    } else {
-      rest.setData(NO_LINE)
-      head.setData(NO_LINE)
-      target.raised?.showRoute([])
-      destination.remove()
-    }
-  }
-  const shown = target.routeShown
+  const previous = target.routeShown
+  const shown = prepareShownRoute(target, route)
+  const newRoute = shown !== previous
+  let redrawFuture = newRoute
   // The raised roads the route is on come and go with the tiles round the view.
   if (route && target.raised && shown.heightsFor !== target.raised.tilesChanged()) {
     shown.heightsFor = target.raised.tilesChanged()
     shown.heights = routeHeights(shown.spans, route.heights, target.raised.surfaceAt)
     shown.restAfter = null
     shown.headFrom = null
+    redrawFuture = true
+  }
+  // The line after the next stop stays put while the driver is on the current leg.
+  if (redrawFuture) {
+    const { flat, raised } = cutRaised(restLine(shown.future, -1), (point) => shown.heights.get(point) ?? 0)
+    future.setData(linesOf(flat))
+    shown.futureRaised = raised
   }
   const truck = truckAt(samples, now - FOLLOW_DELAY_MS)
   // The way the truck faces, on the ground (x east, z south), from its compass bearing.
   const facing = truck && along(bearingOf(truck.heading))
-  const found = route && truck ? progressOf(shown.spans, routeNext, [truck.x, truck.z], facing ?? undefined) : null
-  // Short of the route's start, the line runs from the truck to it, and the truck is shown where it is.
-  const approach = found && truck && facing ? approachLine(shown.spans, found, [truck.x, truck.z], facing) : null
+  // A return span can lie on the same road. Project only onto spans of the current leg.
+  const found = truck ? progressOf(shown.active, routeNext, [truck.x, truck.z], facing ?? undefined) : null
+  const approach = found && truck && facing ? approachLine(shown.active, found, [truck.x, truck.z], facing) : null
   target.progress = found && truck && approach ? { ...found, at: [truck.x, truck.z], distance: 0 } : found
   const progress = target.progress
-  if (!progress) return
-  const { heights } = shown
+  if (!progress && newRoute) {
+    rest.setData(NO_LINE)
+    head.setData(NO_LINE)
+  }
+  const redrawActive = progress ? syncActiveRoute(shown, rest, head, progress, approach) : false
+  if (redrawActive || redrawFuture) {
+    target.raised?.showRoute([...shown.headRaised, ...shown.restRaised], shown.futureRaised)
+  }
+}
+
+type ShownRoute = NonNullable<LiveMap['routeShown']>
+
+/** Builds the route spans and positions the markers when the route or junction paths change. */
+function prepareShownRoute(target: LiveMap, route: LiveState['route']): ShownRoute {
+  if (target.routeShown?.route === route) return target.routeShown
+  const spans = route ? routeSpans(route.nodes, route.paths, route.shifts) : []
+  const activeEnd = route?.activeEnd
+  // Hosts that only send a split point can still show their next stop.
+  const stops = route?.coachStops ?? (activeEnd == null ? [] : [activeEnd])
+  const { active, future } = splitRoute(spans, stops[0])
+  const shown: ShownRoute = {
+    route,
+    spans,
+    active,
+    future,
+    restAfter: null,
+    headFrom: null,
+    heights: new Map(),
+    heightsFor: null,
+    restRaised: [],
+    headRaised: [],
+    futureRaised: [],
+  }
+  target.routeShown = shown
+  placeRouteMarker(target.map, target.destination, route?.nodes.at(-1)?.position)
+  syncWaypointMarkers(target, spans, stops)
+  return shown
+}
+
+function routeMarker(element: HTMLDivElement): maplibregl.Marker {
+  return new maplibregl.Marker({ element, pitchAlignment: 'viewport', rotationAlignment: 'viewport' })
+}
+
+function coachWaypointMarker(): maplibregl.Marker {
+  const element = document.createElement('div')
+  element.className = 'map-waypoint'
+  element.setAttribute('aria-hidden', 'true')
+  return routeMarker(element)
+}
+
+function syncWaypointMarkers(target: LiveMap, spans: Spans, stops: readonly number[]) {
+  const markers: LiveMap['waypoints'] = new Map()
+  for (const stop of new Set(stops)) {
+    if (!Number.isInteger(stop) || stop < 0 || stop >= spans.length) continue
+    // At a turnaround, use the arrival lane. A pending stop can also be at the first route node.
+    const point = spans[stop - 1]?.at(-1) ?? spans[stop][0]
+    if (!point) continue
+    const marker = target.waypoints.get(stop)?.marker ?? coachWaypointMarker()
+    placeRouteMarker(target.map, marker, point)
+    markers.set(stop, { marker, point })
+  }
+  for (const [stop, { marker }] of target.waypoints) {
+    if (!markers.has(stop)) marker.remove()
+  }
+  target.waypoints = markers
+}
+
+function placeRouteMarker(map: maplibregl.Map, marker: maplibregl.Marker, point: Point | undefined) {
+  if (!point) {
+    marker.remove()
+    return
+  }
+  marker.setLngLat(toLngLat(...point))
+  if (!marker.getElement().isConnected) marker.addTo(map)
+}
+
+/** Updates the bright route through the next stop, returning whether its raised lines changed. */
+function syncActiveRoute(
+  shown: ShownRoute,
+  rest: GeoJSONSource,
+  head: GeoJSONSource,
+  progress: Progress,
+  approach: Point[] | null,
+): boolean {
+  const { active, heights } = shown
   if (progress.span !== shown.restAfter) {
-    const { flat, raised } = cutRaised(restLine(shown.spans, progress.span), (point) => heights.get(point) ?? 0)
+    const { flat, raised } = cutRaised(restLine(active, progress.span), (point) => heights.get(point) ?? 0)
     rest.setData(linesOf(flat))
     shown.restRaised = raised
     shown.restAfter = progress.span
@@ -1203,15 +1278,14 @@ function syncRoute(target: LiveMap, now: number) {
   const moved = shown.headFrom
     ? Math.hypot(progress.at[0] - shown.headFrom[0], progress.at[1] - shown.headFrom[1])
     : Infinity
-  if (moved >= ROUTE_HEAD_STEP) {
-    const line = approach ? [...approach, ...shown.spans[0].slice(1)] : headLine(shown.spans, progress)
-    const atHeight = heightOnSpan(shown.spans[progress.span], progress, heights)
-    const { flat, raised } = cutRaised(line, (point) => (point === progress.at ? atHeight : (heights.get(point) ?? 0)))
-    head.setData(linesOf(flat))
-    shown.headRaised = raised
-    shown.headFrom = progress.at
-    target.raised?.showRoute([...shown.headRaised, ...shown.restRaised])
-  }
+  if (moved < ROUTE_HEAD_STEP) return false
+  const line = approach ? [...approach, ...active[0].slice(1)] : headLine(active, progress)
+  const atHeight = heightOnSpan(active[progress.span], progress, heights)
+  const { flat, raised } = cutRaised(line, (point) => (point === progress.at ? atHeight : (heights.get(point) ?? 0)))
+  head.setData(linesOf(flat))
+  shown.headRaised = raised
+  shown.headFrom = progress.at
+  return true
 }
 
 function updateCamera(target: LiveMap, now: number, dt: number) {
@@ -1229,9 +1303,15 @@ function updateCamera(target: LiveMap, now: number, dt: number) {
     const surface = target.raised.surfaceAt(shown[0], shown[1], truck.y, TRUCK_ON_SURFACE)
     target.puckHeight += ((surface?.drawn ?? 0) - target.puckHeight) * Math.min(dt / PUCK_RISE_MS, 1)
     puck.setOffset(target.raised.screenLift(shown[0], shown[1], target.puckHeight))
-    // The flag at the end of the route too, on the road the route ends on.
-    const end = target.routeShown?.spans.at(-1)?.at(-1)
-    if (end) target.destination.setOffset(target.raised.screenLift(end[0], end[1], target.routeShown?.heights.get(end) ?? 0))
+    // Route markers sit at the height of the road at each stop.
+    const route = target.routeShown
+    const end = route?.spans.at(-1)?.at(-1)
+    if (end) target.destination.setOffset(target.raised.screenLift(...end, route?.heights.get(end) ?? 0))
+    for (const { marker, point } of target.waypoints.values()) {
+      const [x, y] = target.raised.screenLift(...point, route?.heights.get(point) ?? 0)
+      const offset = marker.getOffset()
+      if (offset.x !== x || offset.y !== y) marker.setOffset([x, y])
+    }
   }
   if (!puck.getElement().isConnected) puck.addTo(map)
 

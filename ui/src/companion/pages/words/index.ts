@@ -86,8 +86,7 @@ export interface CompanionWords {
   display: string
   displayFirst: string
   displayFirstDetail: string
-    /** The game runs as administrator: WestPlay can't read its route, guidance or weather (owner 2026-10-28:
-     * WestPlay doesn't reach into an elevated game; the player is told). */
+    /** The game runs as administrator, which can limit information read directly by WestPlay. */
     elevated: { title: string; text: string }
     banners: {
       live: { title: string; text: string }

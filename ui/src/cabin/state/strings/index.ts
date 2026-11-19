@@ -78,7 +78,7 @@ export interface Strings {
     full: string
     onJob: string
     noAnswer: string
-    /** The game runs as administrator: WestPlay can't see its route. */
+    /** The game runs as administrator and its updated route didn't arrive in time. */
     elevated: string
     unsupported: string
     failed: string

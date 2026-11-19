@@ -211,7 +211,15 @@ export type HostMessage =
   /** The game's GPS route: its map nodes in order, `[x, z, forward x, forward z, distance left, height]` (metres;
    * the road's direction, either way along it; the distance left from the node to the destination, as the
    * game counts distances). `null` without a route. */
-  | { type: 'route'; id: number | null; nodes: [number, number, number, number, number, number][] | null }
+  | {
+      type: 'route'
+      id: number | null
+      nodes: [number, number, number, number, number, number][] | null
+      /** The next coach stop's index in this route, when it continues past that stop. */
+      activeEnd?: number | null
+      /** Indices of the remaining intermediate coach stops, in route order. */
+      coachStops?: readonly number[]
+    }
   /** The ways through the route's junctions (the junction's own lanes, from the game's files): each from
    * the node it starts at to the next, as `[x, z]` points; and the turns there, by the same node: the
    * turn (`right`, `exit-left`, `roundabout`…), its angle (degrees, right positive) and a roundabout's
