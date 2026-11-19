@@ -179,22 +179,54 @@
   font-weight: 600;
 }
 
-/* The end of the GPS route: a red pin with a flag, as Apple's destination. */
-.map-destination {
+/* Route markers share a white rim and a silhouette that stays upright as the map tilts. */
+.map-destination,
+.map-waypoint {
   display: grid;
   place-items: center;
   width: 44px;
   height: 44px;
   border-radius: 50%;
   color: #fff;
-  background: #ff3b30;
   border: 4px solid #fff;
   box-shadow: 0 4px 12px rgb(0 0 0 / 0.35);
+}
+
+.map-destination {
+  background: #ff3b30;
 }
 
 .map-destination svg {
   width: 22px;
   height: 22px;
+}
+
+.map-waypoint {
+  background: #ff2c3c;
+  pointer-events: none;
+}
+
+.map-waypoint::before,
+.map-waypoint::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  background: currentColor;
+  transform: translateX(-50%);
+}
+
+.map-waypoint::before {
+  top: 7px;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+}
+
+.map-waypoint::after {
+  top: 18px;
+  width: 2px;
+  height: 11px;
+  border-radius: 1px;
 }
 
 /* Turn-by-turn (GuidanceCard.tsx): route guidance is blue, whatever the appearance. In

@@ -86,7 +86,7 @@ export const strings: Strings = {
     full: '路线已有 10 个停靠点，这是游戏允许的上限',
     onJob: '执行运输任务时，目的地由任务决定',
     noAnswer: '游戏没有响应',
-    elevated: '游戏正以管理员身份运行，WestPlay 无法读取它的路线。请正常启动游戏',
+    elevated: '暂未收到游戏路线。请确认已更新 WestPlay 的游戏插件',
     unsupported: '暂不支持此版本的游戏',
     failed: '游戏无法规划到那里的路线',
   },

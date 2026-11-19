@@ -10,8 +10,10 @@
 
 pub mod cityhash;
 pub mod crash;
+pub mod game_route;
 pub mod navigator;
 pub mod probe;
+pub mod route_feed;
 
 use std::cell::UnsafeCell;
 use std::sync::LazyLock;
@@ -30,7 +32,7 @@ pub fn bridge_name() -> String {
     format!("Local\\WestPlay.Bridge.v{BRIDGE_VERSION}")
 }
 pub const BRIDGE_MAGIC: u32 = u32::from_le_bytes(*b"WPB7");
-pub const BRIDGE_VERSION: u32 = 29;
+pub const BRIDGE_VERSION: u32 = 30;
 
 /// Size of the app's frames, and the base size of the screen textures in the mod (`westplay_setup::game_mod`
 /// builds them from these).
@@ -403,6 +405,8 @@ pub struct PluginBlock {
     /// Each [`Keybind`]'s holds so far ([`KEYBIND_HOLD_MS`]: the volume keys held change the song), counted as
     /// its presses are. A held key's press isn't counted: it's a hold.
     pub keybind_holds: [AtomicU32; KEYBIND_COUNT],
+    /// The current leg of the player's Coaches job, as last published by the SDK.
+    pub coach_job: SeqLock<CoachJob>,
 }
 
 /// How long (ms) a volume key held is a hold, not a press (owner 2026-11-03: two seconds): Volume up's the next
@@ -909,6 +913,21 @@ pub struct JobInfo {
     pub income: u64,
 }
 
+/// The SDK's `bus_job` progress. A zero stage count means there is no active passenger job.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct CoachJob {
+    pub stage_count: u32,
+    pub current_stage: u32,
+}
+
+impl CoachJob {
+    /// Whether this snapshot has a valid, zero-based stage within the passenger itinerary.
+    pub fn is_active(self) -> bool {
+        self.current_stage < self.stage_count
+    }
+}
+
 /// A UTF-8 string stored inline in shared memory: NUL-padded, truncated at a character boundary.
 #[repr(C)]
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -978,6 +997,8 @@ unsafe impl Plain for Telemetry {}
 unsafe impl Plain for TruckInfo {}
 // SAFETY: byte strings, integers, floats and `bool`s only (see `Plain`).
 unsafe impl Plain for JobInfo {}
+// SAFETY: both fields are integers (see `Plain`).
+unsafe impl Plain for CoachJob {}
 // SAFETY: byte strings only (see `Plain`).
 unsafe impl Plain for TrailerInfo {}
 // SAFETY: integers and floats only (see `Plain`); a count read torn is bounded by `Nearby::players`.
@@ -1281,6 +1302,7 @@ mod tests {
         }
         let past_last = ScreenLayout::texture_height(screen_layouts().len());
         assert_eq!(screen_layout_for_texture(SCREEN_WIDTH, past_last), None);
+
         assert_eq!(screen_layout_for_texture(SCREEN_WIDTH, SCREEN_HEIGHT - 1), None);
         assert_eq!(screen_layout_for_texture(SCREEN_WIDTH + 1, SCREEN_HEIGHT), None);
     }
@@ -1300,7 +1322,6 @@ mod tests {
         assert!(screen_supported(layout("daf-2021"), "vehicle.daf.2021"));
         assert!(screen_supported(layout("iveco-sway"), "vehicle.iveco.sway"));
         assert!(!screen_supported(screen_layouts().len(), "vehicle.scania.s_2016"));
-
     }
 
     #[test]

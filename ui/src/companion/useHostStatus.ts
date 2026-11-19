@@ -26,7 +26,7 @@ export interface HostStatus {
   truckSupported: boolean | null
   /** The coach's passengers' speakers (`null`: a truck, or not read yet). */
   coachSpeakers: number | null
-  /** Whether the game runs as administrator: WestPlay can't read its route, guidance or weather then. */
+  /** Whether the game runs with higher privileges than WestPlay. */
   gameElevated: boolean
   /** The game's own WestPlay plugin is another build's (`crates/host/src/lib.rs`, `keep_plugins_up_to_date`). */
   pluginOutdated: boolean

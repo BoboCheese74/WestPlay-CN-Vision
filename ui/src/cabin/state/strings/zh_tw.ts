@@ -86,7 +86,7 @@ export const strings: Strings = {
     full: '路線已有 10 個停靠站，這是遊戲允許的上限',
     onJob: '執行運送任務時，目的地由任務決定',
     noAnswer: '遊戲沒有回應',
-    elevated: '遊戲正以系統管理員身分執行，WestPlay 無法讀取它的路線。請以一般方式啟動遊戲',
+    elevated: '暫未收到遊戲路線。請確認已更新 WestPlay 的遊戲外掛',
     unsupported: '尚未支援此版本的遊戲',
     failed: '遊戲無法規劃前往該處的路線',
   },

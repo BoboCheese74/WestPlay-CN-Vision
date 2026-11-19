@@ -9,9 +9,9 @@ use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use westplay_shared::{
-    ENGINE_ADBLUE, ENGINE_AIR, ENGINE_ODOMETER, ENGINE_WATER, FixedStr, JobInfo, Telemetry, TrailerInfo, TruckInfo,
-    WEAR_CAB, WEAR_CARGO, WEAR_CHASSIS, WEAR_ENGINE, WEAR_TRAILER_CHASSIS, WEAR_TRAILER_WHEELS, WEAR_TRANSMISSION,
-    WEAR_WHEELS,
+    CoachJob, ENGINE_ADBLUE, ENGINE_AIR, ENGINE_ODOMETER, ENGINE_WATER, FixedStr, JobInfo, Telemetry, TrailerInfo,
+    TruckInfo, WEAR_CAB, WEAR_CARGO, WEAR_CHASSIS, WEAR_ENGINE, WEAR_TRAILER_CHASSIS, WEAR_TRAILER_WHEELS,
+    WEAR_TRANSMISSION, WEAR_WHEELS,
 };
 
 use crate::scs::{
@@ -319,6 +319,7 @@ unsafe fn on_configuration(configuration: &ConfigurationEvent) {
         match CStr::from_ptr(configuration.id).to_bytes() {
             b"truck" => on_truck(configuration),
             b"job" => on_job(configuration),
+            b"bus_job" => on_coach_job(configuration),
             b"trailer" => on_trailer(configuration),
             _ => {}
         }
@@ -434,6 +435,35 @@ unsafe fn on_job(configuration: &ConfigurationEvent) {
         if let Some(bridge) = bridge::get() {
             bridge.plugin.job.write(&job);
         }
+    }
+}
+
+/// Publishes the coach job's zero-based stage and total stage count, or clears both when the job ends.
+///
+/// # Safety
+/// As [`on_configuration`].
+unsafe fn on_coach_job(configuration: &ConfigurationEvent) {
+    let mut stage_count = None;
+    let mut current_stage = None;
+    // SAFETY: the configuration and its attribute names are valid during this SDK callback.
+    unsafe {
+        for attribute in configuration.attributes() {
+            if attribute.index != SCS_U32_NIL || attribute.value.value_type != SCS_VALUE_TYPE_U32 {
+                continue;
+            }
+            match CStr::from_ptr(attribute.name).to_bytes() {
+                b"bus.stages.count" => stage_count = Some(attribute.value.u32()),
+                b"bus.stages.current" => current_stage = Some(attribute.value.u32()),
+                _ => {}
+            }
+        }
+    }
+    let coach_job = match (stage_count, current_stage) {
+        (Some(stage_count), Some(current_stage)) => CoachJob { stage_count, current_stage },
+        _ => CoachJob::default(),
+    };
+    if let Some(bridge) = bridge::get() {
+        bridge.plugin.coach_job.write(&coach_job);
     }
 }
 

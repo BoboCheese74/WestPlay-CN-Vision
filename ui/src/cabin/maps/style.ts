@@ -134,6 +134,8 @@ interface Palette {
   tunnelFar?: string
   /** The GPS route over the roads, and its edge. */
   route: { fill: string; casing: string }
+  /** Solid colours matching a 40%-opacity route over the nearby local road and its casing. */
+  futureRoute: { fill: string; casing: string }
   /** A route offered but not picked (Directions), and its edge. */
   offered: { fill: string; casing: string }
 }
@@ -165,6 +167,7 @@ const PALETTES: Record<Appearance, Palette> = {
     bridgeEdge: '#aeb0b4',
     tunnel: '#e0dbcd',
     route: { fill: '#2f7cf6', casing: '#1559c9' },
+    futureRoute: { fill: '#accbfb', casing: '#95afd8' },
     offered: { fill: '#a9c7f5', casing: '#7d9fd6' },
   },
   // Apple's dark map (sampled from the owner's screenshots of it, 2026-10-22): slate-blue ground, its
@@ -195,6 +198,7 @@ const PALETTES: Record<Appearance, Palette> = {
     tunnel: '#334457',
     tunnelFar: '#56667e',
     route: { fill: '#3d8bff', casing: '#1b4a96' },
+    futureRoute: { fill: '#34578c', casing: '#233a5f' },
     // Lighter than the ground (the old dark grey-blue vanished into the slate).
     offered: { fill: '#7f9bcb', casing: '#45608f' },
   },
@@ -206,8 +210,12 @@ export function groundColor(appearance: Appearance): string {
 
 /** The route's lowest layer and the one over it: the roads drawn at their real heights (raisedRoads.ts) go under the
  * route, the route on them over it. */
-export const ROUTE_LOWEST_LAYER = 'route-casing'
+export const ROUTE_LOWEST_LAYER = 'route-future-casing'
+export const ACTIVE_ROUTE_LOWEST_LAYER = 'route-casing'
 export const OVER_ROUTE_LAYER = 'offered-casing'
+
+/** Extra width of the route casing in pixels, across both edges. */
+export const ROUTE_CASING_WIDTH = 4
 
 type Rgb = [number, number, number]
 
@@ -223,10 +231,16 @@ export function routeWidth(zoom: number): number {
   return w0 + ((w1 - w0) * (2 ** (zoom - z0) - 1)) / (2 ** (z1 - z0) - 1)
 }
 
-/** The route's colours, as `routeWidth`. */
-export function routeColours(appearance: Appearance): { fill: Rgb; casing: Rgb } {
-  const { route } = PALETTES[appearance]
-  return { fill: rgb(route.fill), casing: rgb(route.casing) }
+/**
+ * Returns the route's colours in WebGL RGB.
+ * @param appearance The map's light or dark palette.
+ * @param future Whether to select the colours for the route after the next coach stop.
+ * @returns RGB triples for the fill and casing, with channels from 0 to 1.
+ */
+export function routeColours(appearance: Appearance, future = false): { fill: Rgb; casing: Rgb } {
+  const palette = PALETTES[appearance]
+  const colours = future ? palette.futureRoute : palette.route
+  return { fill: rgb(colours.fill), casing: rgb(colours.casing) }
 }
 
 /** The colours of the roads at their real heights at `zoom`, as the flat map's: by their kinds in the files (crates/mapdata
@@ -707,6 +721,8 @@ function placeLayer(id: string, image: ExpressionSpecification): LayerSpecificat
  * moves) and the rest, as GeoJSON lines the live map fills in. */
 export const ROUTE_SOURCE = 'westplay-route'
 export const ROUTE_HEAD_SOURCE = 'westplay-route-head'
+/** The route that leaves the next stop. */
+export const ROUTE_FUTURE_SOURCE = 'westplay-route-future'
 /** The routes offered before Go (Directions): lines with `picked` true for the one picked. */
 export const OFFERED_SOURCE = 'westplay-offered'
 
@@ -807,18 +823,26 @@ function routeLayers(palette: Palette): LayerSpecification[] {
       ['zoom'],
       ...ROUTE_WIDTHS.flatMap(([zoom, pixels]) => [zoom, pixels + extra]),
     ] as ExpressionSpecification
-  const layer = (id: string, source: string, color: string, extra: number): LayerSpecification => ({
-    id,
-    type: 'line',
-    source,
-    layout: { 'line-cap': 'round', 'line-join': 'round' },
-    paint: { 'line-color': color, 'line-width': width(extra) },
-  })
+  const layer = (id: string, source: string, part: keyof Palette['route']): LayerSpecification => {
+    const colours = source === ROUTE_FUTURE_SOURCE ? palette.futureRoute : palette.route
+    return {
+      id,
+      type: 'line',
+      source,
+      layout: { 'line-cap': 'round', 'line-join': 'round' },
+      paint: {
+        'line-color': colours[part],
+        'line-width': width(part === 'casing' ? ROUTE_CASING_WIDTH : 0),
+      },
+    }
+  }
   return [
-    layer('route-casing', ROUTE_SOURCE, palette.route.casing, 4),
-    layer('route-head-casing', ROUTE_HEAD_SOURCE, palette.route.casing, 4),
-    layer('route', ROUTE_SOURCE, palette.route.fill, 0),
-    layer('route-head', ROUTE_HEAD_SOURCE, palette.route.fill, 0),
+    layer(ROUTE_LOWEST_LAYER, ROUTE_FUTURE_SOURCE, 'casing'),
+    layer('route-future', ROUTE_FUTURE_SOURCE, 'fill'),
+    layer(ACTIVE_ROUTE_LOWEST_LAYER, ROUTE_SOURCE, 'casing'),
+    layer('route-head-casing', ROUTE_HEAD_SOURCE, 'casing'),
+    layer('route', ROUTE_SOURCE, 'fill'),
+    layer('route-head', ROUTE_HEAD_SOURCE, 'fill'),
   ]
 }
 
@@ -918,6 +942,7 @@ export function mapStyle(appearance: Appearance, data: MapData | null, surfaces 
           ...(data.world ? { [WORLD_SOURCE]: { type: 'geojson' as const, data: data.world.url } } : {}),
           [ROUTE_SOURCE]: { type: 'geojson', data: NO_LINE },
           [ROUTE_HEAD_SOURCE]: { type: 'geojson', data: NO_LINE },
+          [ROUTE_FUTURE_SOURCE]: { type: 'geojson', data: NO_LINE },
           [OFFERED_SOURCE]: { type: 'geojson', data: NO_LINE },
           [TRAFFIC_SOURCE]: { type: 'geojson', data: NO_LINE },
           [PLAYERS_SOURCE]: { type: 'geojson', data: NO_LINE },

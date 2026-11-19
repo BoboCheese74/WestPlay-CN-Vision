@@ -15,6 +15,7 @@ mod keyboard;
 mod log;
 mod mod_mount;
 mod navigation;
+mod route;
 mod screens;
 mod scs;
 mod telemetry;
@@ -80,6 +81,9 @@ unsafe fn init(version: u32, params: *const TelemetryInitParamsV100) -> i32 {
             scs::minor_version(version),
         );
 
+        if let Some(bridge) = bridge::get() {
+            bridge.plugin.coach_job.write(&Default::default());
+        }
         telemetry::register(params);
         camera::locate();
         // WestPlay's screen mod, before the game mounts the profile's mods.
@@ -110,6 +114,7 @@ unsafe fn init(version: u32, params: *const TelemetryInitParamsV100) -> i32 {
             game_log(SCS_LOG_TYPE_MESSAGE, message.as_ptr());
         }
 
+        route::start();
         SCS_RESULT_OK
     }
 }
@@ -127,6 +132,7 @@ pub unsafe extern "system" fn scs_telemetry_shutdown() {
 /// # Safety
 /// As [`scs_telemetry_shutdown`].
 unsafe fn shutdown() {
+    route::stop();
     // SAFETY: on the game's main thread, after a successful init; a detour still running on the render
     // thread is given time to return below, before the plugin can be unloaded.
     unsafe {

@@ -4,7 +4,9 @@ import type { Appearance } from '../state/appearance'
 import { METRES_PER_DEGREE } from './projection'
 import type { RaisedLine, SurfaceAt } from './route'
 import {
+  ACTIVE_ROUTE_LOWEST_LAYER,
   OVER_ROUTE_LAYER,
+  ROUTE_CASING_WIDTH,
   ROUTE_LOWEST_LAYER,
   SURFACE_SOURCE,
   raisedColours,
@@ -24,6 +26,7 @@ import {
 
 export const RAISED_LAYER = 'raised-roads'
 export const RAISED_ROUTE_LAYER = 'raised-route'
+const RAISED_FUTURE_ROUTE_LAYER = 'raised-route-future'
 /** From here in the surfaces are the map's roads, and raised ones start to rise, up to their whole height at the second. */
 const RISE_ZOOMS = [15, 15.5] as const
 const FILE_ZOOM = 14
@@ -42,8 +45,7 @@ const LOOK_EVERY_MS = 300
 /** A tile's surfaces are found by cells: how many a side, and how many of a vertex's units one is. */
 const CELLS = 64
 const CELL_UNITS = 1024
-/** The route's edge, pixels, and how far above the road it lies, m (the line isn't cut by anything). */
-const ROUTE_CASING = 4
+/** How far above the road the route lies, in metres (the line isn't cut by anything). */
 const ROUTE_ABOVE = 0.3
 /** One metre in MapLibre's world (x and y 0 to 1), and how the ground's shadows fall from what casts them, m/m. */
 const METRE = 1 / 40075016.686
@@ -138,17 +140,24 @@ in vec2 a_at;
 in float a_high;
 in vec2 a_along;
 in float a_side;
+out float v_side;
 void main() {
   vec2 at = a_at + vec2(-a_along.y, a_along.x) * a_side * u_half;
   gl_Position = u_matrix * vec4(at, (a_high * u_rise + ${ROUTE_ABOVE}) * ${METRE}, 1.0);
+  v_side = a_side;
 }`
 
 const ROUTE_FRAGMENT_SHADER = `#version 300 es
 precision highp float;
-uniform vec3 u_colour;
+uniform vec3 u_fill;
+uniform vec3 u_casing;
+uniform float u_fill_fraction;
+in float v_side;
 out vec4 colour;
 void main() {
-  colour = vec4(u_colour, 1.0);
+  float edge = max(0.00001, 0.5 * fwidth(v_side));
+  float casing = smoothstep(u_fill_fraction - edge, u_fill_fraction + edge, abs(v_side));
+  colour = vec4(mix(u_fill, u_casing, casing), 1.0);
 }`
 
 type Key = `${number}/${number}`
@@ -176,8 +185,8 @@ export interface RaisedRoads {
   tilesChanged(): number
   /** Shows the roads at their real heights, or the flat map's alone. */
   setShown(shown: boolean): void
-  /** The stretches of the route on raised roads, to draw. */
-  showRoute(lines: readonly RaisedLine[]): void
+  /** Draws the `active` and `future` route stretches on raised roads. */
+  showRoute(active: readonly RaisedLine[], future: readonly RaisedLine[]): void
   /** How far on the screen something `height` over the ground at (x, z) is from the ground there, CSS pixels. */
   screenLift(x: number, z: number, height: number): [number, number]
 }
@@ -277,10 +286,11 @@ export function raisedRoads(map: maplibregl.Map, address: string, appearance: ()
     array: WebGLVertexArrayObject
     buffer: WebGLBuffer
   } | null = null
-  let routeLines: readonly RaisedLine[] = []
+  let routeLines: { active: readonly RaisedLine[]; future: readonly RaisedLine[] } = { active: [], future: [] }
   let routeStale = false
   /** Where the stretches of the route are in its buffer, and the place its points are from, in tile widths. */
-  let routeRuns: { first: number; count: number }[] = []
+  type RouteRun = { first: number; count: number }
+  let routeRuns: { active: RouteRun[]; future: RouteRun[] } = { active: [], future: [] }
   let routeOrigin: [number, number] = [0, 0]
 
   void fetch(`${address}/index.json`)
@@ -415,9 +425,9 @@ export function raisedRoads(map: maplibregl.Map, address: string, appearance: ()
     return [((raised[0] - ground[0]) / 2) * clientWidth, (-(raised[1] - ground[1]) / 2) * clientHeight]
   }
 
-  function showRoute(lines: readonly RaisedLine[]) {
-    if (lines.length === 0 && routeLines.length === 0) return
-    routeLines = lines
+  function showRoute(active: readonly RaisedLine[], future: readonly RaisedLine[]) {
+    if (!active.length && !future.length && !routeLines.active.length && !routeLines.future.length) return
+    routeLines = { active, future }
     routeStale = true
     map.triggerRepaint()
   }
@@ -425,15 +435,18 @@ export function raisedRoads(map: maplibregl.Map, address: string, appearance: ()
   /** The route's stretches into its buffer: two vertices a point, x, y, height, the way it goes (x, y) and which side. */
   function uploadRoute(gl: WebGL2RenderingContext, buffer: WebGLBuffer) {
     routeStale = false
-    routeRuns = []
-    const lines = routeLines.filter((line) => line.length > 1)
+    routeRuns = { active: [], future: [] }
+    const lines = (['future', 'active'] as const).flatMap((part) =>
+      routeLines[part].filter((line) => line.length > 1).map((line) => ({ line, part })),
+    )
     if (lines.length === 0) return
-    const origin = worldOf(lines[0][0][0], lines[0][0][1]).map((part) => part * TILES)
+    const [x, z] = lines[0].line[0]
+    const origin = worldOf(x, z).map((part) => part * TILES)
     routeOrigin = [origin[0], origin[1]]
-    const data = new Float32Array(lines.reduce((sum, line) => sum + line.length, 0) * 2 * 6)
+    const data = new Float32Array(lines.reduce((sum, { line }) => sum + line.length, 0) * 2 * 6)
     let vertex = 0
-    for (const line of lines) {
-      routeRuns.push({ first: vertex, count: line.length * 2 })
+    for (const { line, part } of lines) {
+      routeRuns[part].push({ first: vertex, count: line.length * 2 })
       const placed = line.map(([x, z]) => worldOf(x, z).map((part, i) => part * TILES - origin[i]))
       line.forEach(([, , height], index) => {
         const [before, after] = [placed[Math.max(index - 1, 0)], placed[Math.min(index + 1, line.length - 1)]]
@@ -567,6 +580,44 @@ export function raisedRoads(map: maplibregl.Map, address: string, appearance: ()
       gl.bindVertexArray(null)
     },
   }
+  /** Draws either part from the shared route buffer, in that part's layer order. */
+  function drawRoute(gl: WebGL2RenderingContext, args: CustomRenderMethodInput, future: boolean) {
+    if (!route) return
+    if (routeStale) uploadRoute(gl, route.buffer)
+    const runs = future ? routeRuns.future : routeRuns.active
+    if (!runs.length) return
+    const zoom = map.getZoom()
+    const { fill, casing } = routeColours(appearance(), future)
+    const fillWidth = routeWidth(zoom)
+    const fullWidth = fillWidth + ROUTE_CASING_WIDTH
+    // As MapLibre draws a line: its width lies on the ground, so it narrows into the distance with the flat map's.
+    const tilesPerPixel = TILES / (512 * 2 ** zoom)
+    gl.useProgram(route.program)
+    gl.uniformMatrix4fv(
+      route.uniforms.u_matrix,
+      false,
+      matrixFrom(args.defaultProjectionData.mainMatrix, routeOrigin[0], routeOrigin[1]),
+    )
+    gl.uniform1f(route.uniforms.u_rise, riseAt(zoom))
+    gl.uniform1f(route.uniforms.u_half, (fullWidth / 2) * tilesPerPixel)
+    gl.uniform1f(route.uniforms.u_fill_fraction, fillWidth / fullWidth)
+    gl.uniform3fv(route.uniforms.u_fill, fill)
+    gl.uniform3fv(route.uniforms.u_casing, casing)
+    gl.bindVertexArray(route.array)
+    overTheMap(gl)
+    for (const { first, count } of runs) gl.drawArrays(gl.TRIANGLE_STRIP, first, count)
+    gl.bindVertexArray(null)
+  }
+
+  const futureRouteLayer: CustomLayerInterface = {
+    id: RAISED_FUTURE_ROUTE_LAYER,
+    type: 'custom',
+    renderingMode: '3d',
+    render(raw, args) {
+      drawRoute(raw as WebGL2RenderingContext, args, true)
+    },
+  }
+
   const routeLayer: CustomLayerInterface = {
     id: RAISED_ROUTE_LAYER,
     type: 'custom',
@@ -590,39 +641,14 @@ export function raisedRoads(map: maplibregl.Map, address: string, appearance: ()
       gl.bindVertexArray(null)
       route = {
         program: made,
-        uniforms: locations(gl, made, ['u_matrix', 'u_rise', 'u_half', 'u_colour']),
+        uniforms: locations(gl, made, ['u_matrix', 'u_rise', 'u_half', 'u_fill_fraction', 'u_fill', 'u_casing']),
         array,
         buffer,
       }
       routeStale = true
     },
-    render(raw, args: CustomRenderMethodInput) {
-      const gl = raw as WebGL2RenderingContext
-      if (!route) return
-      if (routeStale) uploadRoute(gl, route.buffer)
-      if (routeRuns.length === 0) return
-      const zoom = map.getZoom()
-      const colours = routeColours(appearance())
-      // As MapLibre draws a line: its width lies on the ground, so it narrows into the distance with the flat map's.
-      const tilesPerPixel = TILES / (512 * 2 ** zoom)
-      gl.useProgram(route.program)
-      gl.uniformMatrix4fv(
-        route.uniforms.u_matrix,
-        false,
-        matrixFrom(args.defaultProjectionData.mainMatrix, routeOrigin[0], routeOrigin[1]),
-      )
-      gl.uniform1f(route.uniforms.u_rise, riseAt(zoom))
-      gl.bindVertexArray(route.array)
-      overTheMap(gl)
-      for (const [colour, width] of [
-        [colours.casing, routeWidth(zoom) + ROUTE_CASING],
-        [colours.fill, routeWidth(zoom)],
-      ] as const) {
-        gl.uniform3fv(route.uniforms.u_colour, colour)
-        gl.uniform1f(route.uniforms.u_half, (width / 2) * tilesPerPixel)
-        for (const { first, count } of routeRuns) gl.drawArrays(gl.TRIANGLE_STRIP, first, count)
-      }
-      gl.bindVertexArray(null)
+    render(raw, args) {
+      drawRoute(raw as WebGL2RenderingContext, args, false)
     },
   }
 
@@ -642,6 +668,7 @@ export function raisedRoads(map: maplibregl.Map, address: string, appearance: ()
   // Again after a lost context: MapLibre brings the style back without layers like these.
   map.on('style.load', () => {
     map.addLayer(layer, ROUTE_LOWEST_LAYER)
+    map.addLayer(futureRouteLayer, ACTIVE_ROUTE_LOWEST_LAYER)
     map.addLayer(routeLayer, OVER_ROUTE_LAYER)
     applyShown()
   })

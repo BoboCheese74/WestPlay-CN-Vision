@@ -81,7 +81,7 @@ export const words: CompanionWords = {
       'In a coach, the passengers’ speakers all play at once. On a weak processor, the game can stutter with them.',
     elevated: {
       title: 'The game is running as administrator',
-      text: 'WestPlay can’t see its route, guidance or weather then. Start the game normally, not as administrator.',
+      text: 'The updated game plugin makes navigation available to WestPlay. Windows may still limit access to live weather.',
     },
     banners: {
       live: { title: 'Connected', text: 'WestPlay is on your truck’s screen' },

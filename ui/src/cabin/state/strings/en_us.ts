@@ -84,7 +84,7 @@ export const strings: Strings = {
     full: 'The route has 10 stops, the most the game allows',
     onJob: 'On a job, the destination is the job’s',
     noAnswer: 'The game didn’t answer',
-    elevated: 'The game is running as administrator, so WestPlay can’t see its route. Start it normally',
+    elevated: 'WestPlay hasn’t received the route. Check that the game plugin is up to date',
     unsupported: 'This version of the game isn’t supported yet',
     failed: 'The game couldn’t route there',
   },
