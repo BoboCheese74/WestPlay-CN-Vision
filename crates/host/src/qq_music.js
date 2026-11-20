@@ -944,7 +944,7 @@
         if (media?.error) {
           post({
             qqProbe:
-              'PROBE audio error event: code ' +
+              'audio error event: code ' +
               media.error.code +
               ' "' +
               (media.error.message || '') +
@@ -963,7 +963,7 @@
         if (throughCab && !cabGaveUp) {
           cabGaveUp = true
           throughCab = false
-          post({ qqProbe: 'PROBE the cab refused the song; giving it up and playing plainly' })
+          post({ qqProbe: 'the cab refused the song; giving it up and playing plainly' })
           const at = media?.currentTime || 0
           try {
             media?.pause()
@@ -1023,7 +1023,7 @@
         .join(' ')
       post({
         qqProbe:
-          'PROBE stream fetch: HTTP ' +
+          'stream fetch: HTTP ' +
           answer.status +
           ' CT=' +
           (answer.headers.get('content-type') || 'none') +
@@ -1037,7 +1037,7 @@
     } catch (error) {
       post({
         qqProbe:
-          'PROBE stream fetch FAILED: ' + (error && error.name + ': ' + error.message) + ' | ' + url.slice(0, 140),
+          'stream fetch FAILED: ' + (error && error.name + ': ' + error.message) + ' | ' + url.slice(0, 140),
       })
     }
   }
@@ -1071,7 +1071,7 @@
       const second = { at: element.currentTime, quiet: cabIsQuiet() }
       post({
         qqProbe:
-          'PROBE cab levels ' +
+          'cab levels ' +
           String(sound?.level?.()) +
           ' at ' +
           first.at.toFixed(1) +
@@ -1083,7 +1083,7 @@
       })
       // Time moving and silence both times: not a quiet passage, and not a stall.
       if (!first.quiet || !second.quiet || second.at - first.at < 0.4) return
-      post({ qqProbe: 'PROBE the cab plays nothing at all; playing as it is' })
+      post({ qqProbe: 'the cab plays nothing at all; playing as it is' })
       cabGaveUp = true
       throughCab = false
       const at = second.at
@@ -1168,7 +1168,7 @@
       const pairs = credentialPairs()
       post({
         qqProbe:
-          'PROBE no stream: ' +
+          'no stream: ' +
           why +
           ' | cred: ' +
           (pairs.length ? pairs.map(([k, v]) => k + '=' + String(v).length).join(',') : 'NONE') +
@@ -1282,7 +1282,7 @@
           const el_error = el.error
           post({
             qqProbe:
-              'PROBE audio.play() FAILED: ' +
+              'audio.play() FAILED: ' +
               (error && error.name + ': ' + error.message) +
               ' | element ' +
               (el_error ? 'code ' + el_error.code + ' "' + (el_error.message || '') + '"' : 'no error') +
@@ -1304,7 +1304,7 @@
           // hands out a new vkey every time (checked). Once per song.
           if (!refreshed.has(mid) && streams.has(String(el.src || ''))) {
             refreshed.add(mid)
-            post({ qqProbe: 'PROBE the CDN refused the stream; asking the layer for a new one' })
+            post({ qqProbe: 'the CDN refused the stream; asking the layer for a new one' })
             setTimeout(() => loadCurrent(autoplay), 0)
             return
           }
@@ -1314,7 +1314,7 @@
           if (throughCab && !cabGaveUp) {
             cabGaveUp = true
             throughCab = false
-            post({ qqProbe: 'PROBE the cab refused the song; giving it up and playing plainly' })
+            post({ qqProbe: 'the cab refused the song; giving it up and playing plainly' })
             const fresh = audio()
             if (!fresh.paused) fresh.pause()
             try {
@@ -1332,7 +1332,7 @@
     } catch (error) {
       if (token !== player.token) return
       player.loading = false
-      post({ qqProbe: 'PROBE loadCurrent FAILED for ' + mid + ': ' + (error && (error.message || error)) })
+      post({ qqProbe: 'loadCurrent FAILED for ' + mid + ': ' + (error && (error.message || error)) })
       // A song the account may not play: on to the next one of the queue (a playlist's own songs are
       // partly paying ones: stopping there would leave the list unplayable past its first such song).
       if (error && error.noStream && player.queue.length > 1 && player.skipped < player.queue.length - 1) {
@@ -1487,7 +1487,7 @@
       Promise.resolve(CONTROLS[data?.action]?.(data)).catch((error) => {
         // Said, so a control that fails isn't just nothing happening (the app showed the same
         // screen either way).
-        post({ qqProbe: 'PROBE ' + String(data?.action) + ' FAILED: ' + (error && (error.stack || error.message || error)) })
+        post({ qqProbe: '' + String(data?.action) + ' FAILED: ' + (error && (error.stack || error.message || error)) })
       })
   })
 

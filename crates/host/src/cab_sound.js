@@ -317,32 +317,13 @@ window.westplayCabSound = (media, say) => {
       try {
         wire()
         muffle(cut)
-        window.chrome?.webview?.postMessage({
-          qqProbe:
-            'PROBE cab_sound outside done: on=' + on + ' audio=' + Boolean(audio) +
-            ' muffleNode=' + Boolean(audio?.muffle) +
-            ' freq=' + (audio?.muffle?.filter?.frequency?.value ?? 'n/a') +
-            ' gain=' + (audio?.muffle?.gain?.gain?.value ?? 'n/a'),
-        })
-      } catch (error) {
-        window.chrome?.webview?.postMessage({
-          qqProbe: 'PROBE cab_sound outside FAILED: ' + (error && (error.message || error)),
-        })
-      }
+      } catch {}
     },
     // Each pass: the speakers' way on the element there is now (the page may make a new one); the sound's
     // context woken if it sleeps.
     tick() {
       try {
         wire()
-        window.__westplayTickSaid = (window.__westplayTickSaid ?? 0) + 1
-        if (window.__westplayTickSaid % 8 === 0) {
-          window.chrome?.webview?.postMessage({
-            qqProbe:
-              'PROBE tick: media=' + Boolean(media()) + ' audio=' + Boolean(audio) +
-              ' speakers=' + Boolean(speakers) + ' head=' + Boolean(head) + ' outside=' + outside,
-          })
-        }
         if (audio?.context.state === 'suspended') audio.context.resume()
       } catch {}
     },
