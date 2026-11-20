@@ -253,6 +253,17 @@ export type HostMessage =
   | { type: 'menuGone'; gone: boolean }
   /** A keybind of the player's (the companion's Controls), pressed in the game. */
   | { type: 'keybind'; action: KeybindAction }
+  /** The truck's speakers and the cab around them, for the cabin page's own player to place its sound the
+   * same way the music pages do (`cab_sound.js`). NetEase Cloud Music's app draws itself here, so it gets
+   * this message here rather than in a page of its own. */
+  | {
+      type: 'cab'
+      speakers: Speaker[] | null
+      head: CabHead
+      outside: boolean
+      distance: number
+      equalizer: Equalizer
+    }
   /** Whether the game runs. As it closes, the host closes the web players; the page powers off and forgets
    * its last telemetry. */
   | { type: 'game'; running: boolean }

@@ -39,8 +39,11 @@ function elementIn(): HTMLAudioElement | null {
   if (typeof Audio === 'undefined') return null
   element = new Audio()
   element.preload = 'auto'
-  // Its sound through the truck's own speakers (spatial.ts, the same graph the music pages use). The element is
-  // taken in only when the host has told the page a cab; until then the sound is the element's own.
+  // Its sound through the truck's own speakers (spatial.ts, the same graph the music pages use). Handed over
+  // once it is actually playing: `createMediaElementSource` takes an element's own output away for good, and
+  // an element taken in before it has a stream never came through the graph at all — it played, and nothing
+  // was heard (owner 2026-11-20).
+  // Handed to the cab's graph as it's made (`spatial.ts`); with the graph off it plays as it is.
   setSource(element)
   return element
 }

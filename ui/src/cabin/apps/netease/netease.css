@@ -1312,7 +1312,18 @@
   position: relative;
   overflow: hidden;
   border-radius: var(--ne-corner-card);
+}
+
+/* The cover keeps its frame and its shadow; the words and the queue don't — a box around them read as a
+   card laid over the page rather than the page's own other half (owner 2026-11-20). */
+.ne-app .ne-now-art:has(.ne-now-cover) {
   box-shadow: var(--ne-shadow-large);
+}
+
+.ne-app .ne-now-art:has(.ne-lyrics),
+.ne-app .ne-now-art:has(.ne-queue) {
+  border-radius: 0;
+  overflow: visible;
 }
 
 .ne-app .ne-now-cover {
@@ -1627,8 +1638,7 @@
   min-height: 0;
   display: grid;
   place-items: center;
-  border-radius: var(--ne-corner-card);
-  background: var(--ne-lyrics-ground);
+  /* No frame of its own either: a song with no words says so in the column's own space. */
   padding: 24px;
   text-align: center;
 }
@@ -1653,22 +1663,21 @@
    wash is made dark enough for white words already (`washFrom`), so nothing more needs to sit over it. */
 .ne-app .ne-lyrics {
   position: relative;
+  /* As wide as Up Next, faded at the top and bottom as they scroll: Apple Music's own column
+     (`.am-lyrics` above), which is the shape the words are written for. */
+  width: min(560px, 44cqw);
   height: 100%;
   min-height: 0;
   overflow-y: auto;
   scrollbar-width: none;
-  border-radius: var(--ne-corner-card);
-  /* No ground of its own: the words sit on the blurred cover, as QQ Music's do. It was filled with
-     `--song` (the cover's own colour), which read as a flat brownish block over a brown cover
-     (owner 2026-11-20, with the screenshot). A soft shadow keeps the words legible over a pale one. */
+  /* No ground of its own: the words sit on the blurred cover. It was filled with `--song` (the
+     cover's own colour), which read as a flat brownish block over a brown cover (owner 2026-11-20).
+     A soft shadow keeps them legible over a pale cover. */
   background: transparent;
   text-shadow: 0 2px 12px rgb(0 0 0 / 0.55);
-  padding: 50% 22px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-  mask-image: linear-gradient(to bottom, transparent, #000 4%, #000 96%, transparent);
+  /* Room under the last line to bring it up to where the line sung is kept. */
+  padding: 24px 6px 40cqh 0;
+  mask-image: linear-gradient(to bottom, transparent, #000 9%, #000 82%, transparent);
 }
 
 /* Now Playing with the words: the words are the cover's place, as they were before the wide-screen change. */
@@ -1677,20 +1686,21 @@
   flex-direction: column;
   gap: 2px;
   width: 100%;
-  padding: 7px 10px;
-  border-radius: var(--ne-corner-small);
-  text-align: center;
-  /* A step below the page's body type: the words are many and in a row, so a slightly smaller size reads better
-     than the list type (the owner's 2026-11-20 "略微缩小歌词大小"). */
-  font-size: var(--ne-type-label);
-  font-weight: 600;
-  line-height: 1.32;
+  padding: 2px 0;
+  /* Left, as Apple Music's words are (`.am-lyrics .lyric`): a column read down, not centred boxes. */
+  text-align: start;
+  /* Apple Music's own sizes, which is what the shared `LyricsLines` is drawn for: one line big and
+     bold, faint until it's sung. */
+  font-size: calc(34px * var(--text-scale, 1));
+  font-weight: 750;
+  line-height: 1.22;
   /* The words take the app's own ink rather than a fixed white: Now Playing's wash is light in the light
      appearance, and white words over it were invisible there (the owner's dark-mode report). */
   color: var(--ne-lyric);
+  opacity: 0.3;
   transition:
-    color var(--ne-quick),
-    scale var(--ne-quick) var(--ne-ease);
+    opacity 0.45s ease,
+    color 0.45s ease;
 }
 
 .ne-app .ne-lyric.sung {
@@ -1703,8 +1713,9 @@
    what keeps the scroll from juddering. */
 .ne-app .ne-lyric.now {
   color: var(--ne-lyric-now);
-  font-weight: 800;
-  scale: 1.2;
+  /* Lit, not enlarged: Apple Music lights the line it's on, and enlarging one pushed the column's
+     other lines about as it moved. */
+  opacity: 1;
 }
 
 .ne-app .ne-lyric-translation {

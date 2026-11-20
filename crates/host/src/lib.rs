@@ -2421,6 +2421,9 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
             let cab_now = (truck_speakers.map(<[speakers::Speaker]>::to_vec), head, outside, distance, equalizer);
             if cab_told.as_ref() != Some(&cab_now) {
                 cab_told = Some(cab_now);
+                // `webview` is the cabin page itself: its own player (NetEase Cloud Music's app draws itself
+                // there) places its sound through the truck's speakers from this same message — the music
+                // pages get theirs from `cab_sound.js` over their own ones.
                 let _ = webview.post_json(&speakers::cab_message(
                     truck_speakers,
                     head,

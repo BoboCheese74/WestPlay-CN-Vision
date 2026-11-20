@@ -16,6 +16,18 @@
 
 import type { CabHead, Equalizer, Speaker } from '../../../shared/host'
 
+/**
+ * Whether the app's sound goes through the cab's graph (`wire`) or plays as the element gives it.
+ *
+ * Off for now: in WebView2 an element taken in by `createMediaElementSource` never reaches the speakers —
+ * not even wired straight to the destination, with the context `running` and the element `paused: false`,
+ * `readyState: 4`, `volume: 0.47` (checked 2026-11-20, by bisection: the plain element plays, the same
+ * element through the graph is silent). The graph itself is kept whole: everything it needs is here, and
+ * the switch is the one line below. What it needs next is a way to reach the speakers in this browser —
+ * a hidden page of its own, as the other players have, which is the shape `cab_sound.js` is written for.
+ */
+const BYPASS = true
+
 /** A speaker's sound falls with its distance from the head past this, as in a cab (metres). */
 const NEAR = 0.3
 
@@ -89,8 +101,7 @@ export function receiveCab(message: {
   equalizer = message.equalizer
   try {
     wire()
-  } catch {
-    // The graph is best-effort: a cab the browser can't build leaves the sound as the element plays it.
+  } catch (error) {
   }
 }
 
@@ -100,11 +111,13 @@ export function receiveCab(message: {
  */
 export function setSource(element: HTMLAudioElement | null): void {
   sourceElement = element
+  // BYPASS: `createMediaElementSource` takes the element's own output away for good — a graph it's put into
+  // is then the only way its sound can reach the speakers. Not called at all while this is on.
+  if (BYPASS) return
   try {
     wire()
     wake()
-  } catch {
-    /* as receiveCab */
+  } catch (error) {
   }
 }
 
@@ -120,7 +133,32 @@ export function wake(): void {
   if (audio?.context.state === 'suspended') void audio.context.resume().catch(() => {})
 }
 
+/**
+ * Whether two speaker lists describe the same cab. The host sends an array with every message, and the graph
+ * only needs rebuilding when what it says changes.
+ */
+function sameSpeakers(a: Speaker[], b: Speaker[] | null): boolean {
+  if (!b || a.length !== b.length) return false
+  return a.every((speaker, i) => {
+    const other = b[i]
+    return (
+      speaker.channel === other.channel &&
+      speaker.level === other.level &&
+      speaker.delay === other.delay &&
+      speaker.band[0] === other.band[0] &&
+      speaker.band[1] === other.band[1] &&
+      speaker.at[0] === other.at[0] &&
+      speaker.at[1] === other.at[1] &&
+      speaker.at[2] === other.at[2]
+    )
+  })
+}
+
+
 function wire(): void {
+  // BYPASS (2026-11-20): the graph is built and every number reads right, yet nothing is heard. Taken out
+  // until it's found, so the app plays through its element as before. Set to `false` to bring it back.
+  if (BYPASS) return
   const media = sourceElement
   // The sound is the element's own until there are speakers (and a head) to play it, or walls to come through.
   if (!media || (!audio && !(speakers && head) && !outside)) return
@@ -140,8 +178,11 @@ function wire(): void {
     wake()
   }
   if (!graph.source) return
-  // Already wired for these speakers (and a head is there): nothing to do.
-  if (graph.wired === speakers || (speakers && !head)) return
+  // Already wired for these speakers (and a head is there): nothing to do. Compared by what they are,
+  // not by the array's identity: the host sends a fresh array with each message, so the old `!==` test
+  // rewired the whole graph again and again — cutting the source off each time, which is heard as no
+  // sound at all (owner 2026-11-20).
+  if ((graph.wired && sameSpeakers(graph.wired, speakers)) || (speakers && !head)) return
 
   graph.source.disconnect()
   for (const node of graph.nodes) node.disconnect()
@@ -153,6 +194,7 @@ function wire(): void {
 
   const { context } = graph
   const keep = <T extends AudioNode>(node: T): T => (graph.nodes.push(node), node)
+
 
   // First, the tone.
   const bands = TONE.map(([, options]) => keep(new BiquadFilterNode(context, options)))
@@ -242,6 +284,7 @@ function wire(): void {
     node.connect(panner)
     panner.connect(out)
   }
+
 
   // The head placed anew (its listener perhaps new too).
   placed = null

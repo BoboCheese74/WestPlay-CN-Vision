@@ -43,6 +43,7 @@ import {
   receiveWebAppVolume,
 } from '../apps/web/webapp'
 import { receiveAnswer, receiveState, useYouTube } from '../apps/youtube/youtube'
+import { receiveCab } from '../apps/netease/spatial'
 import { receiveFolder, receivePlayback as receivePlayerPlayback } from '../apps/player/player'
 import { receiveRadioAnswer } from '../apps/radio/api'
 import { receiveRadioPlayback } from '../apps/radio/radio'
@@ -824,6 +825,18 @@ function receiveHostMessage(now: () => number): (message: HostMessage) => void {
         break
       case 'keybind':
         useLive.setState((live) => ({ keybind: { action: message.action, count: (live.keybind?.count ?? 0) + 1 } }))
+        break
+      case 'cab':
+        // The truck's speakers, its driver's head and the camera, for the cabin page's own player: NetEase
+        // Cloud Music's app draws itself here, so it takes its sound into the same graph from here rather
+        // than from a page of its own (`apps/netease/spatial.ts`).
+        receiveCab({
+          speakers: message.speakers,
+          head: message.head,
+          outside: message.outside,
+          distance: message.distance,
+          equalizer: message.equalizer,
+        })
         break
       case 'truckersmp':
         useLive.setState({
