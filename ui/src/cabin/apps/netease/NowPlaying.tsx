@@ -12,6 +12,7 @@ import {
   ShuffleGlyph,
   VolumeGlyph,
 } from './glyphs'
+import { Crossfade } from '../music/Crossfade'
 import { songCover } from './look'
 import { coverColour, hueOf, tintOf, washFrom } from './look'
 import { lineAt, type Words } from './lyrics'
@@ -144,6 +145,14 @@ export function NowPlaying() {
       style={{ '--song': wash } as CSSProperties}
       aria-hidden={!open}
     >
+      {/* The cover itself, blown up and blurred under a dark wash: the page's colour comes from the song,
+          which is what QQ Music's Now Playing does (`music-backdrop`). The flat gradient alone gave the
+          words nothing to sit on and read as one colour filling the box. */}
+      <Crossfade
+        value={track.picture}
+        className="music-backdrop ne-backdrop"
+        render={(url) => url && <img src={url} alt="" />}
+      />
       <div className="ne-now-head">
         <button type="button" className="ne-icon" aria-label={WORDS.close} onClick={close}>
           <DownGlyph />
@@ -178,7 +187,44 @@ export function NowPlaying() {
           </button>
         </div>
       </div>
+
       <div className="ne-now-body">
+        <div className="ne-now-side">
+          <div className="ne-now-text">
+            <span key={track.id} className="ne-now-name">
+              {track.name}
+            </span>
+            <span className="ne-now-artists">
+              {track.artists.map((artist, i) => (
+                <span key={`${artist}:${i}`}>
+                  {i > 0 && ' / '}
+                  {i === 0 && track.artistIds.length > 0 ? (
+                    <button type="button" onClick={toArtist}>
+                      {artist}
+                    </button>
+                  ) : (
+                    artist
+                  )}
+                </span>
+              ))}
+            </span>
+            {track.album && (
+              <button
+                type="button"
+                className="ne-now-album"
+                onClick={() => {
+                  close()
+                  openSongAlbum(track)
+                }}
+              >
+                {track.album}
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* The square, as QQ Music has it: the cover, the words, or the queue — the same box either way,
+            so switching between them doesn't move the page around. */}
         <div className="ne-now-art">
           {showQueue ? (
             <Queue playback={playback} />
@@ -188,41 +234,11 @@ export function NowPlaying() {
             <Cover key={track.id} item={songCover(track)} className="ne-now-cover" />
           )}
         </div>
-        <div className="ne-now-side">
-          <div className="ne-now-names">
-            <div className="ne-now-text">
-              <span key={track.id} className="ne-now-name">
-                {track.name}
-              </span>
-              <span className="ne-now-artists">
-                {track.artists.map((artist, i) => (
-                  <span key={`${artist}:${i}`}>
-                    {i > 0 && ' / '}
-                    {i === 0 && track.artistIds.length > 0 ? (
-                      <button type="button" onClick={toArtist}>
-                        {artist}
-                      </button>
-                    ) : (
-                      artist
-                    )}
-                  </span>
-                ))}
-              </span>
-              {track.album && (
-                <button
-                  type="button"
-                  className="ne-now-album"
-                  onClick={() => {
-                    close()
-                    openSongAlbum(track)
-                  }}
-                >
-                  {track.album}
-                </button>
-              )}
-            </div>
-          </div>
-          {playback.sound === 'unplayable' ? <NoRight song={track} /> : <Progress playback={playback} />}
+      </div>
+
+      <div className="ne-now-foot">
+        {playback.sound === 'unplayable' ? <NoRight song={track} /> : <Progress playback={playback} />}
+        <div className="ne-now-row">
           <div className="ne-controls">
             <button
               type="button"
@@ -257,6 +273,7 @@ export function NowPlaying() {
               <RepeatGlyph one={playback.repeat === 'one'} />
             </button>
           </div>
+          {/* Beside the controls, at their right: short enough not to take the row (owner 2026-11-20). */}
           <Volume />
         </div>
       </div>

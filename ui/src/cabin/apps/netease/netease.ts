@@ -304,6 +304,8 @@ function begin(context: PlayContext | null, tracks: Song[], index: number, direc
       sound: 'loading',
     },
   })
+  // A fade left running by a pause must not follow the new song (see `endFade`).
+  endFade()
   void startSound(song)
 }
 
@@ -494,6 +496,19 @@ const FADE_MS = 1000
  * ramps to 0 leaves their level exactly as they set it: playing again ramps back up to it rather than to
  * anything new.
  */
+/**
+ * Drops any fade in progress and puts the sound at the player's own level.
+ *
+ * A song beginning while a fade runs (pressed pause, then skipped) left the fade half way: `fade` is
+ * what `soundingVolume` scales by, so the next song started at almost nothing — it played, and nobody
+ * heard it until they pressed play again, which ran `rampFade(1)` and brought it up (owner 2026-11-20).
+ */
+function endFade(): void {
+  if (fadeRamp !== null) clearInterval(fadeRamp)
+  fadeRamp = null
+  setFade(1)
+}
+
 function rampFade(to: number, done?: () => void): void {
   if (fadeRamp !== null) clearInterval(fadeRamp)
   fadeRamp = null
