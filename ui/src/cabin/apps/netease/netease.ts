@@ -621,7 +621,8 @@ export function followSound(): () => void {
       if (volume !== useNetease.getState().volume) useNetease.setState({ volume })
     },
   })
-  return () => audio.stop()
+  // Only stop telling; the sound plays on (its window in the cab coming and going isn't the song ending).
+  return () => audio.unlisten()
 }
 
 // --- The account -------------------------------------------------------------------------------------------

@@ -8,6 +8,7 @@ const none: Record<NowPlayingSource, boolean> = {
   appleMusic: false,
   youtubeMusic: false,
   qqMusic: false,
+  netease: false,
   player: false,
   radio: false,
 }

@@ -8,6 +8,7 @@ import { command as webAppCommand, shownPlaying, useWebApp } from '../apps/web/w
 import { playOrPause as playOrPausePlayer, usePlayerSource } from '../apps/player/player'
 import { playOrPauseRadio, useRadioSource } from '../apps/radio/radio'
 import { playOrPause as playOrPauseQqMusic, useQqMusicSource } from '../apps/qq/qqMusic'
+import { playOrPause as playOrPauseNetease, useNeteaseSource } from '../apps/netease/netease'
 import { type NowPlayingSource, shownSource } from './nowPlaying'
 
 /** What Now Playing last showed playing, kept while the screens showing it come and go (nowPlaying.ts). */
@@ -54,6 +55,7 @@ export function useNowPlaying() {
   const youtubeMusic = useYouTubeMusicSource()
   const player = usePlayerSource()
   const qqMusic = useQqMusicSource()
+  const netease = useNeteaseSource()
   const radio = useRadioSource()
   const video = useYouTube((store) => store.current)
   const videoPlaying = useYouTube((store) => store.state?.state === 1 && store.state.video === store.current?.video)
@@ -64,6 +66,7 @@ export function useNowPlaying() {
     appleMusic: appleMusic?.source.status === 'playing',
     youtubeMusic: youtubeMusic?.source.status === 'playing',
     qqMusic: qqMusic?.source.status === 'playing',
+    netease: netease?.source.status === 'playing',
     player: player?.source.status === 'playing',
     radio: radio?.source.status === 'playing',
   }
@@ -74,6 +77,7 @@ export function useNowPlaying() {
     appleMusic: Boolean(appleMusic),
     youtubeMusic: Boolean(youtubeMusic),
     qqMusic: Boolean(qqMusic),
+    netease: Boolean(netease),
     player: Boolean(player),
     radio: Boolean(radio),
   }
@@ -82,7 +86,7 @@ export function useNowPlaying() {
   useEffect(() => {
     if (showing !== null && showingPlays) lastPlayed = showing
   }, [showing, showingPlays])
-  return { showing, playing, webApp, spotify, appleMusic, youtubeMusic, qqMusic, player, radio, video }
+  return { showing, playing, webApp, spotify, appleMusic, youtubeMusic, qqMusic, netease, player, radio, video }
 }
 
 /** The track Now Playing shows, as one line of a list draws it (the Equalizer's): its title, who it's by, its
@@ -94,7 +98,8 @@ export function useNowPlayingTrack(): {
   playing: boolean
   playPause: (() => void) | null
 } | null {
-  const { showing, playing, webApp, spotify, appleMusic, youtubeMusic, qqMusic, player, radio, video } = useNowPlaying()
+  const { showing, playing, webApp, spotify, appleMusic, youtubeMusic, qqMusic, netease, player, radio, video } =
+    useNowPlaying()
   const music = (
     player: { source: { title: string; artist: string; controls: { playPause: boolean } }; artwork: string | null },
     playPause: () => void,
@@ -127,6 +132,10 @@ export function useNowPlayingTrack(): {
       return youtubeMusic ? music(youtubeMusic, playOrPauseYouTubeMusic, playing.youtubeMusic) : null
     case 'qqMusic':
       return qqMusic ? music(qqMusic, playOrPauseQqMusic, playing.qqMusic) : null
+    case 'netease':
+      // NetEase's app is the player itself (its own element in the cabin page), so this is the app's own
+      // pause and play, not a page's.
+      return netease ? music(netease, playOrPauseNetease, playing.netease) : null
     case 'player':
       return player ? music(player, playOrPausePlayer, playing.player) : null
     case 'radio':

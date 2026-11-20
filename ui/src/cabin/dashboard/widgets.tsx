@@ -10,6 +10,12 @@ import {
   PreviousGlyph,
   SpeakerGlyph,
 } from '../apps/music/glyphs'
+import {
+  playOrPause as playOrPauseNetease,
+  skip as skipNetease,
+  useNetease,
+  useNeteaseSource,
+} from '../apps/netease/netease'
 import { TrackSlide } from '../apps/music/TrackSlide'
 import { useTrackTransition } from '../apps/music/useTrackTransition'
 import { playOrPause, setVolume as setSpotifyVolume, skip, useSpotify, useSpotifySource } from '../apps/spotify/spotify'
@@ -62,7 +68,7 @@ import { cabClock } from '../../shared/host'
  */
 export function NowPlayingWidget() {
   const shown = useCabin((state) => state.dashboardWidgets.nowPlaying)
-  const { showing, webApp, spotify, appleMusic, youtubeMusic, qqMusic, player, radio } = useNowPlaying()
+  const { showing, webApp, spotify, appleMusic, youtubeMusic, qqMusic, netease, player, radio } = useNowPlaying()
   return (
     <div className={`widget-slot${shown ? ' open' : ''}`}>
       {shown && showing === 'video' && <VideoWidget />}
@@ -71,10 +77,31 @@ export function NowPlayingWidget() {
       {shown && showing === 'appleMusic' && appleMusic && <AppleMusicWidget appleMusic={appleMusic} />}
       {shown && showing === 'youtubeMusic' && youtubeMusic && <YouTubeMusicWidget youtubeMusic={youtubeMusic} />}
       {shown && showing === 'qqMusic' && qqMusic && <QqMusicWidget qqMusic={qqMusic} />}
+      {shown && showing === 'netease' && netease && <NeteaseWidget netease={netease} />}
       {shown && showing === 'player' && player && <PlayerWidget player={player} />}
       {shown && showing === 'radio' && radio && <RadioWidget radio={radio} />}
       {shown && showing === null && <MusicWidget source={null} artwork={null} onControl={() => {}} />}
     </div>
+  )
+}
+
+/** NetEase Cloud Music's (its own player in the cabin page): what plays, its cover and volume, and its three
+ * buttons — the same card QQ Music's gets. */
+function NeteaseWidget({ netease }: { netease: NonNullable<ReturnType<typeof useNeteaseSource>> }) {
+  return (
+    <MusicWidget
+      source={netease.source}
+      artwork={netease.artwork}
+      onOpen={() => {
+        useNetease.setState({ nowPlaying: true })
+        go({ type: 'openApp', app: 'spotify' })
+      }}
+      onControl={(action) => {
+        if (action === 'playPause') playOrPauseNetease()
+        else if (action === 'next') skipNetease(1)
+        else if (action === 'previous') skipNetease(-1)
+      }}
+    />
   )
 }
 

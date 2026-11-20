@@ -54,6 +54,28 @@ export function sound(): HTMLAudioElement | null {
 }
 
 /** Sets what the sound tells the app. */
+/**
+ * Stops telling the app about the sound, and nothing more.
+ *
+ * The app's window comes and goes (its page is drawn as it's opened, closed when another app is); what the
+ * sound does is the cab's player's business, not the window's. Telling it to stop with the window took the
+ * song away with it — a switch to another app and back was silence (owner 2026-11-20).
+ */
+export function unlisten(): void {
+  events = null
+  const audio = element
+  if (!audio) return
+  audio.onplay = null
+  audio.onpause = null
+  audio.ontimeupdate = null
+  audio.onseeked = null
+  audio.onended = null
+  audio.onerror = null
+  audio.oncanplay = null
+  audio.onloadedmetadata = null
+  audio.onvolumechange = null
+}
+
 export function listen(heard: SoundEvents): void {
   events = heard
   const audio = elementIn()
