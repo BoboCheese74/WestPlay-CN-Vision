@@ -147,6 +147,22 @@ export function useShownAgain(shown: boolean): number {
   return times
 }
 
+/**
+ * How many times the account has changed (signed in, signed out, or another account): a page whose
+ * content is the account's own (the home feed's picks) asks again when it does, or it kept showing the
+ * feed of the account the player just left (owner 2026-11-19).
+ */
+export function useSignInChanges(): number {
+  const signedIn = useQqMusic((state) => state.signedIn)
+  const [changes, setChanges] = useState(0)
+  const [was, setWas] = useState(signedIn)
+  if (signedIn !== was) {
+    setWas(signedIn)
+    setChanges((count) => count + 1)
+  }
+  return changes
+}
+
 // --- Going around ------------------------------------------------------------------------------------------
 
 let nextId = 1
@@ -394,7 +410,13 @@ export function cycleRepeat(): void {
 /** The hidden page's login state: signed in or not, and the account's avatar (`null` when unknown). */
 export function receiveState(signedIn: boolean | null, avatar: string | null): void {
   if (signedIn == null) return
+  const before = useQqMusic.getState().signedIn
   useQqMusic.setState({ signedIn, avatar: signedIn ? avatar : null })
+  // The account changed: every answer kept for the old one is another's — its home feed's picks above
+  // all, which was what the app went on showing after a sign-in (owner 2026-11-19). The page drops its
+  // own copies too (`qq_music.js` clears `homeCache` as the credential arrives): both have to go, or the
+  // app renders the anonymous feed from its own cache without asking again.
+  if (before !== signedIn) asking.clear()
 }
 
 /** What QQ Music plays (`qqMusicPlayback`): the app follows it. */

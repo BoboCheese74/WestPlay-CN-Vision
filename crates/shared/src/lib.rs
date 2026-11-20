@@ -405,7 +405,6 @@ pub struct PluginBlock {
     /// Each [`Keybind`]'s holds so far ([`KEYBIND_HOLD_MS`]: the volume keys held change the song), counted as
     /// its presses are. A held key's press isn't counted: it's a hold.
     pub keybind_holds: [AtomicU32; KEYBIND_COUNT],
-    /// The current leg of the player's Coaches job, as last published by the SDK.
     pub coach_job: SeqLock<CoachJob>,
 }
 
@@ -885,6 +884,22 @@ pub struct TruckInfo {
     pub adblue_capacity: f32,
 }
 
+
+/// The SDK's `bus_job` progress. A zero stage count means there is no active passenger job.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct CoachJob {
+    pub stage_count: u32,
+    pub current_stage: u32,
+}
+
+impl CoachJob {
+    /// Whether this snapshot has a valid, zero-based stage within the passenger itinerary.
+    pub fn is_active(self) -> bool {
+        self.current_stage < self.stage_count
+    }
+}
+
 /// The player's current job, from the SDK's "job" configuration. Names come localized by the game.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -911,21 +926,6 @@ pub struct JobInfo {
     pub planned_distance_km: u32,
     /// The expected income, without penalties, in the game's currency.
     pub income: u64,
-}
-
-/// The SDK's `bus_job` progress. A zero stage count means there is no active passenger job.
-#[repr(C)]
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct CoachJob {
-    pub stage_count: u32,
-    pub current_stage: u32,
-}
-
-impl CoachJob {
-    /// Whether this snapshot has a valid, zero-based stage within the passenger itinerary.
-    pub fn is_active(self) -> bool {
-        self.current_stage < self.stage_count
-    }
 }
 
 /// A UTF-8 string stored inline in shared memory: NUL-padded, truncated at a character boundary.
@@ -1302,7 +1302,6 @@ mod tests {
         }
         let past_last = ScreenLayout::texture_height(screen_layouts().len());
         assert_eq!(screen_layout_for_texture(SCREEN_WIDTH, past_last), None);
-
         assert_eq!(screen_layout_for_texture(SCREEN_WIDTH, SCREEN_HEIGHT - 1), None);
         assert_eq!(screen_layout_for_texture(SCREEN_WIDTH + 1, SCREEN_HEIGHT), None);
     }
@@ -1322,6 +1321,7 @@ mod tests {
         assert!(screen_supported(layout("daf-2021"), "vehicle.daf.2021"));
         assert!(screen_supported(layout("iveco-sway"), "vehicle.iveco.sway"));
         assert!(!screen_supported(screen_layouts().len(), "vehicle.scania.s_2016"));
+
     }
 
     #[test]

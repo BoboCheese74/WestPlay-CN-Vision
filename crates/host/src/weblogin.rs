@@ -26,6 +26,8 @@ const QQ_MUSIC: signin::Site = signin::Site {
     home: "https://y.qq.com/",
     not_yet: None,
     page_says: Some(include_str!("qq_music_sign_in.js")),
+    cookie_origins: &["https://c.y.qq.com/", "https://u.y.qq.com/", "https://ptlogin2.qq.com/", "https://graph.qq.com/"],
+    signing_out: false,
 };
 
 /// QQ Music's signing out: its own page for it (the player closes the window when done).
@@ -35,6 +37,8 @@ const QQ_MUSIC_OUT: signin::Site = signin::Site {
     home: "https://y.qq.com/",
     not_yet: None,
     page_says: Some("/* signing out: the window closing says it's done */"),
+    cookie_origins: &["https://c.y.qq.com/", "https://u.y.qq.com/", "https://ptlogin2.qq.com/", "https://graph.qq.com/"],
+    signing_out: true,
 };
 
 /// NetEase Cloud Music's sign-in: a dialog of its own page, which says so once signed in.
@@ -44,6 +48,8 @@ const NETEASE: signin::Site = signin::Site {
     home: "https://music.163.com/",
     not_yet: None,
     page_says: Some(include_str!("netease_sign_in.js")),
+    cookie_origins: &["https://music.163.com/"],
+    signing_out: false,
 };
 
 /// NetEase Cloud Music's signing out: its own page for it.
@@ -53,6 +59,8 @@ const NETEASE_OUT: signin::Site = signin::Site {
     home: "https://music.163.com/",
     not_yet: None,
     page_says: Some("/* signing out: the window closing says it's done */"),
+    cookie_origins: &["https://music.163.com/"],
+    signing_out: true,
 };
 
 /// Bilibili's sign-in: a page of its own (passport), coming back to Bilibili once signed in.
@@ -62,6 +70,8 @@ const BILIBILI: signin::Site = signin::Site {
     home: "https://www.bilibili.com/",
     not_yet: None,
     page_says: None,
+    cookie_origins: &["https://passport.bilibili.com/"],
+    signing_out: false,
 };
 
 /// Bilibili's signing out: its own page for it.
@@ -71,6 +81,8 @@ const BILIBILI_OUT: signin::Site = signin::Site {
     home: "https://www.bilibili.com/",
     not_yet: None,
     page_says: Some("/* signing out: the window closing says it's done */"),
+    cookie_origins: &["https://passport.bilibili.com/"],
+    signing_out: true,
 };
 
 /// Which of the three sites.

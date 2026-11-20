@@ -1096,33 +1096,6 @@ pub fn environment_for(user_data: &Path) -> Result<ICoreWebView2Environment, Err
     create_environment(user_data, true)
 }
 
-/// The variable naming the folder of unpacked extensions every site's WebView2 loads (`create_environment`).
-/// Unset: only WestPlay's own folder, beside the app, is looked in.
-pub const EXTENSIONS_VARIABLE: &str = "WESTPLAY_EXTENSIONS";
-
-/// Every folder of unpacked extensions to load: one extension a folder (`<extension>/manifest.json`), as Chromium
-/// takes them. Two places are looked in, each optional: `extensions` beside the app's own executable (shipped, or
-/// put there by a player), and the folder [`EXTENSIONS_VARIABLE`] names (a player's own).
-fn extension_folders() -> Vec<PathBuf> {
-    let mut roots: Vec<PathBuf> = std::env::var_os(EXTENSIONS_VARIABLE).map(PathBuf::from).into_iter().collect();
-    if let Ok(exe) = std::env::current_exe()
-        && let Some(folder) = exe.parent()
-    {
-        roots.push(folder.join("extensions"));
-    }
-    let mut folders = Vec::new();
-    for root in roots {
-        let Ok(entries) = std::fs::read_dir(&root) else { continue };
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.is_dir() && path.join("manifest.json").is_file() {
-                folders.push(path);
-            }
-        }
-    }
-    folders
-}
-
 /// A WebView2 environment on the profile `user_data` for browsing the web (Safari): as the players' own, but a
 /// page plays sound by itself only as a browser lets it (once the player has clicked in it), not as it loads.
 pub fn browsing_environment(user_data: &Path) -> Result<ICoreWebView2Environment, Error> {
@@ -1154,17 +1127,6 @@ fn create_environment(user_data: &Path, autoplay: bool) -> Result<ICoreWebView2E
     // The GPU it draws on (graphics.rs).
     if let Some(gpu) = GPU_ARGUMENT.lock().unwrap_or_else(|e| e.into_inner()).as_deref() {
         arguments = format!("{arguments} {gpu}");
-    }
-    // The player's own extensions (WESTPLAY_EXTENSIONS, a folder of unpacked ones): QQ Music's web player lists
-    // only ten tracks of a playlist, an album or the liked songs unless the page asks for more, and the extension
-    // a player installs for it does exactly that — it rewrites the request's count on its own page
-    // (owner 2026-11-10). Given to every site's WebView2 rather than QQ Music's alone: an extension whose match
-    // patterns don't name a page does nothing there, and one env var keeps the host unaware of what's installed.
-    for folder in extension_folders() {
-        let folder = folder.display();
-        arguments = format!(
-            "{arguments} --load-extension=\"{folder}\" --disable-extensions-except=\"{folder}\""
-        );
     }
     // SAFETY: the options object is ours and alive; the arguments are a plain string.
     unsafe {

@@ -9,9 +9,10 @@ use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use westplay_shared::{
-    CoachJob, ENGINE_ADBLUE, ENGINE_AIR, ENGINE_ODOMETER, ENGINE_WATER, FixedStr, JobInfo, Telemetry, TrailerInfo,
-    TruckInfo, WEAR_CAB, WEAR_CARGO, WEAR_CHASSIS, WEAR_ENGINE, WEAR_TRAILER_CHASSIS, WEAR_TRAILER_WHEELS,
-    WEAR_TRANSMISSION, WEAR_WHEELS,
+    CoachJob,
+    ENGINE_ADBLUE, ENGINE_AIR, ENGINE_ODOMETER, ENGINE_WATER, FixedStr, JobInfo, Telemetry, TrailerInfo, TruckInfo,
+    WEAR_CAB, WEAR_CARGO, WEAR_CHASSIS, WEAR_ENGINE, WEAR_TRAILER_CHASSIS, WEAR_TRAILER_WHEELS, WEAR_TRANSMISSION,
+    WEAR_WHEELS,
 };
 
 use crate::scs::{

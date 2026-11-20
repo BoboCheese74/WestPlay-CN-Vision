@@ -474,41 +474,38 @@
   let homeCache = null
   const home = async () => {
     if (homeCache) return homeCache
-    // Signed out: its own answer is the anonymous one anyway, asking again before a sign-in
-    // would keep it (`saveCredential` clears this when the credential arrives).
-    const feed = await get('/recommend/get_home_feed')
-    const sections = feedSections(feed)
+    // The site's own shelves, in its own order — which is what its home page shows: 今日为你打造
+    // (每日30首, 百万收藏, 歌手漫游, 新歌推荐 …), 大家都在听, 你的私荐歌单, 热门节目, 为你精选的AI歌单,
+    // 排行榜. The account's own lists have their entries in that first shelf's cards; they aren't
+    // shelves of their own there, and putting them in front made a home the site never shows
+    // (owner 2026-11-20: taken from the site's page).
+    const sections = feedSections(await get('/recommend/get_home_feed'))
 
     // The site's shelves for everyone as well, merged under the account's own: signed in it drops
-    // the general ones (大家都在听, 排行榜, 为你精选的AI歌单 …) and keeps only its own picks, and the
-    // app showed them before a sign-in (owner 2026-11-16). A shelf of the same title stays one (the
-    // account's own standing where the general one was).
+    // the general ones and keeps only its own picks, and the app showed them before a sign-in. A
+    // shelf of the same title stays one (the account's own standing where the general one was).
     try {
       const general = feedSections(await get('/recommend/get_home_feed', { anon: true }))
       const known = new Set(sections.map((section) => section.title))
       for (const section of general) {
-        // The site's own daily slot (今日为你打造: 每日30首, 百万收藏, 歌手漫游, 新歌推荐) is asked for
-        // without a credential, so its cards are everyone's — its '每日30首' opens a page built from
-        // the account's radar instead, which isn't that list at all (owner 2026-11-16: taken out of
-        // the anonymous part, the rest as they were).
-        if (section.items.some((item) => item.id === 'qqdaily')) continue
-        if (!known.has(section.title)) sections.push(section)
+        const kept = { ...section, items: section.items.filter((item) => item.id !== 'qqdaily') }
+        if (kept.items.length === 0 && kept.songs.length === 0) continue
+        if (!known.has(kept.title)) sections.push(kept)
       }
     } catch {
       // The general list is a second helping: without it the account's own still shows.
     }
 
     if (sections.length > 0) {
-      // The radar's picks under them: the one list that stays a list of songs to play, and it isn't
-      // one of the feed's shelves (the app showed it before, and its players' lists would go with
-      // it otherwise).
-      const picks = (await fetchRadar()).map(track)
+      // The site's own 猜你喜欢-沉浸刷歌, as the one list of songs to play: the account's radar, which
+      // is what that card opens on the site too.
+      const picks = (await fetchRadar()).map(safeTrack)
       if (picks.length > 0) {
-        sections.push({ title: '雷达推荐', style: 'songs', items: [], songs: picks })
+        sections.push({ title: '猜你喜欢', style: 'songs', items: [], songs: picks })
       }
-      // Kept only for a signed-in account: a page that asked before the credential arrived gets
-      // the anonymous list, and keeping it would hide the account's own for the whole run.
       const answer = { sections }
+      // Kept only for a signed-in account: a page that asked before the credential arrived gets the
+      // anonymous list, and keeping it would hide the account's own for the whole run.
       if (savedCookie || savedCred) homeCache = answer
       return answer
     }
@@ -531,13 +528,13 @@
           title: '新歌首发',
           style: 'songs',
           items: [],
-          songs: (news.songs ?? []).map(track),
+          songs: (news.songs ?? []).map(safeTrack),
         },
         {
-          title: '雷达推荐',
+          title: '猜你喜欢',
           style: 'songs',
           items: [],
-          songs: radar.map(track),
+          songs: radar.map(safeTrack),
         },
       ],
     }
@@ -1045,43 +1042,11 @@
     }
   }
 
-  const corsHosts = new Map()
-  const corsOk = async (url) => {
-    let host = ''
-    try {
-      host = new URL(url).host
-    } catch {
-      return false
-    }
-    const known = corsHosts.get(host)
-    if (known !== undefined) return known
-    let ok = false
-    try {
-      const answer = await fetch(url, {
-        method: 'GET',
-        mode: 'cors',
-        credentials: 'omit',
-        headers: { Range: 'bytes=0-1023' },
-      })
-      // A real answer with the header the browser needs: the bytes are dropped, the permission isn't.
-      ok = answer.ok && Boolean(answer.headers.get('access-control-allow-origin'))
-      try {
-        await answer.body?.cancel()
-      } catch {}
-    } catch {
-      ok = false
-    }
-    corsHosts.set(host, ok)
-    post({ qqProbe: 'PROBE cors ' + host + ': ' + (ok ? 'allowed' : 'refused') })
-    return ok
-  }
-
   /** Whether this song may be taken into the cab's graph: a cab there, not given up, the head known, and
    * its host letting the browser have it. */
-  let thisSongInCab = false
 
   const takeIntoCab = () => {
-    throughCab = Boolean(sound) && !cabGaveUp && headReady && thisSongInCab
+    throughCab = Boolean(sound) && !cabGaveUp && headReady
   }
 
   /** How loud the cab's speakers play now in each ear (none: nothing was taken into it). */
@@ -1298,7 +1263,6 @@
       player.track = meta
       // The cab takes the song only where its host lets the browser have it (asked here, once per host):
       // taken and refused, the browser wouldn't play it at all. Anything else plays as it is.
-      thisSongInCab = Boolean(sound) && !cabGaveUp && headReady && (await corsOk(url))
       takeIntoCab()
       const el = audio()
       // Paused before the source changes: handing a new address to an element that's playing makes it

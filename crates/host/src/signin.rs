@@ -56,6 +56,12 @@ pub struct Site {
     pub home: &'static str,
     pub not_yet: Option<&'static str>,
     pub page_says: Option<&'static str>,
+    /// Whether this window signs the account out rather than in (its cookies are the site's own to
+    /// clear, and are left alone before it opens).
+    pub signing_out: bool,
+    /// Other addresses the site keeps its account cookies under (`GetCookies` answers for one address
+    /// at a time): a sign-in that goes through another host leaves its records there.
+    pub cookie_origins: &'static [&'static str],
 }
 
 /// Google's sign-in for YouTube, coming back to YouTube once signed in (through YouTube's own `/signin`, which
@@ -66,6 +72,8 @@ pub const YOUTUBE: Site = Site {
     home: "https://www.youtube.com/",
     not_yet: Some("signin"),
     page_says: None,
+    cookie_origins: &["https://www.youtube.com/", "https://music.youtube.com/"],
+    signing_out: false,
 };
 
 /// Google's sign-in for YouTube Music: YouTube's own (YouTube Music shares YouTube's sign-in: its cookies are
@@ -79,6 +87,8 @@ pub const SPOTIFY: Site = Site {
     home: "https://open.spotify.com/",
     not_yet: None,
     page_says: None,
+    cookie_origins: &[],
+    signing_out: false,
 };
 
 /// Spotify's sign-up, coming back to its web player signed in to the new account.
@@ -88,6 +98,8 @@ pub const SPOTIFY_SIGN_UP: Site = Site {
     home: "https://open.spotify.com/",
     not_yet: None,
     page_says: None,
+    cookie_origins: &[],
+    signing_out: false,
 };
 
 /// Apple Music's sign-in: the dialog of its own web player, opened at once (`apple_music_sign_in.js`).
@@ -97,6 +109,8 @@ pub const APPLE_MUSIC: Site = Site {
     home: "https://music.apple.com/",
     not_yet: None,
     page_says: Some(include_str!("apple_music_sign_in.js")),
+    cookie_origins: &[],
+    signing_out: false,
 };
 const CLASS: windows::core::PCWSTR = w!("WestPlaySignIn");
 const SIZE: (i32, i32) = (520, 760);
@@ -327,6 +341,16 @@ impl SignInWindow {
         unsafe { webview.add_WindowCloseRequested(&handler, &mut token)? };
 
         let this = Self { window, hosted, webview, _target: target, loaded, site, closed, said };
+        // The site's own cookies go first: the browser keeps the account signed in otherwise, so a
+        // player who signed out and asked to sign in again landed straight back in the same account,
+        // with no page to choose another one — or another way in (owner 2026-11-19). A sign-out window
+        // keeps them: it is the site's own page that signs the account out.
+        if !site.signing_out {
+            this.forget_cookies();
+            // The profile writes the clear as it goes: a page opened in the same breath still saw the
+            // account (the log had 35 ms between the two, and "signed in" 0.34 s later).
+            std::thread::sleep(std::time::Duration::from_millis(400));
+        }
         // SAFETY: the window and its WebView were made above, on this thread, and are alive; the address lives through
         // the call.
         unsafe {
@@ -350,57 +374,124 @@ impl SignInWindow {
         use webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2_2;
         use windows::core::HSTRING;
         // The page's own profile, alive as long as its window.
-        // SAFETY: the WebView is alive while `self` is; the URI is this process's own string.
+        // SAFETY: the WebView is alive while `self` is; the URIs are this process's own strings.
         let manager = unsafe { self.webview.cast::<ICoreWebView2_2>().ok()?.CookieManager().ok()? };
-        let uri = HSTRING::from(self.site.home);
-        let read: std::rc::Rc<std::cell::RefCell<Vec<(String, String, bool)>>> = Default::default();
-        let into = read.clone();
-        let read_one = GetCookiesCompletedHandler::wait_for_async_operation(
-            Box::new(move |handler| unsafe {
-                manager.GetCookies(&uri, &handler).map_err(webview2_com::Error::WindowsError)
-            }),
-            Box::new(move |error, list| {
-                error?;
-                let Some(list) = list else { return Ok(()) };
-                // SAFETY: the list WebView2 handed over, read within its count; each cookie's strings
-                // are CoTaskMem's, freed by `CoTaskMemPWSTR`.
-                unsafe {
-                    let mut count = 0;
-                    list.Count(&mut count)?;
-                    for at in 0..count {
-                        let cookie = list.GetValueAtIndex(at)?;
-                        let text = |read: &dyn Fn(&mut windows::core::PWSTR) -> windows::core::Result<()>| {
-                            let mut value = windows::core::PWSTR::null();
-                            if read(&mut value).is_err() || value.is_null() {
-                                return String::new();
-                            }
-                            webview2_com::CoTaskMemPWSTR::from(value).to_string()
-                        };
-                        let mut http_only = windows::core::BOOL::default();
-                        let _ = cookie.IsHttpOnly(&mut http_only);
-                        into.borrow_mut().push((
-                            text(&|value| cookie.Name(value)),
-                            text(&|value| cookie.Value(value)),
-                            http_only.as_bool(),
-                        ));
+        let manager = std::rc::Rc::new(manager);
+        // Every address its cookies may live under, not just the site's home: `GetCookies(uri)` answers
+        // with the cookies that apply to that one address, and an account's own are spread wider —
+        // QQ Music's sign-in keeps `pt_recent_uins` under `ptlogin2.qq.com` and the account's number
+        // under `.qq.com`, and the home alone missed the first (owner 2026-11-19: a signed-in account
+        // its own site read as anonymous).
+        let mut urls: Vec<&str> = vec![self.site.home];
+        urls.extend(self.site.cookie_origins.iter().copied());
+        let mut seen: std::collections::BTreeMap<(String, String), ()> = Default::default();
+        let mut pairs: Vec<(String, String)> = Vec::new();
+        for url in urls {
+            let manager = manager.clone();
+            let uri = HSTRING::from(url);
+            let read: std::rc::Rc<std::cell::RefCell<Vec<(String, String, String)>>> = Default::default();
+            let into = read.clone();
+            let read_one = GetCookiesCompletedHandler::wait_for_async_operation(
+                Box::new(move |handler| unsafe {
+                    manager.GetCookies(&uri, &handler).map_err(webview2_com::Error::WindowsError)
+                }),
+                Box::new(move |error, list| {
+                    error?;
+                    let Some(list) = list else { return Ok(()) };
+                    // SAFETY: the list WebView2 handed over, read within its count; each cookie's strings
+                    // are CoTaskMem's, freed by `CoTaskMemPWSTR`.
+                    unsafe {
+                        let mut count = 0;
+                        list.Count(&mut count)?;
+                        for at in 0..count {
+                            let cookie = list.GetValueAtIndex(at)?;
+                            let text = |read: &dyn Fn(&mut windows::core::PWSTR) -> windows::core::Result<()>| {
+                                let mut value = windows::core::PWSTR::null();
+                                if read(&mut value).is_err() || value.is_null() {
+                                    return String::new();
+                                }
+                                webview2_com::CoTaskMemPWSTR::from(value).to_string()
+                            };
+                            // The domain as well: the same name sits under more than one, and the one
+                            // the layer is given has to be the site's own (a `ptcz` of `ptlogin2`'s
+                            // isn't the one QQ Music reads).
+                            into.borrow_mut().push((
+                                text(&|value| cookie.Name(value)),
+                                text(&|value| cookie.Value(value)),
+                                text(&|value| cookie.Domain(value)),
+                            ));
+                        }
                     }
+                    Ok(())
+                }),
+            );
+            if read_one.is_err() {
+                continue;
+            }
+            for (name, value, domain) in read.borrow().iter() {
+                if name.is_empty() || value.is_empty() {
+                    continue;
                 }
-                Ok(())
-            }),
-        );
-        read_one.ok()?;
-        let cookies = read.borrow().clone();
-        if cookies.is_empty() {
+                // The site's own domain first (`.qq.com` covers its home), then whatever else answered.
+                let key = (name.clone(), domain.clone());
+                if seen.insert(key, ()).is_none() {
+                    pairs.push((name.clone(), value.clone()));
+                }
+            }
+        }
+        if pairs.is_empty() {
             return None;
         }
-        Some(
-            cookies
-                .into_iter()
-                .filter(|(_, _, http_only)| !http_only)
-                .map(|(name, value, _)| format!("{name}={value}"))
-                .collect::<Vec<_>>()
-                .join("; "),
-        )
+        // Every cookie, HttpOnly ones included: the account's own rights come with them (`psrf_qqopenid`,
+        // `psrf_qqrefresh_token`, `psrf_qqaccess_token` are all HttpOnly), and without them the layer
+        // can't tell a paying account from a free one — its streams answered `104003` (no rights) on
+        // songs the site plays. They travel to the layer from here, in Rust, not through the hidden
+        // page's script.
+        Some(pairs.into_iter().map(|(name, value)| format!("{name}={value}")).collect::<Vec<_>>().join("; "))
+    }
+
+    /// Drops the site's account from its profile, so the next page it opens asks for one instead of
+    /// finding the last one: every cookie the profile holds, awaited (`ClearBrowsingData`).
+    ///
+    /// Reading each cookie and deleting it by name left the "remember me" the sign-in page itself keeps
+    /// — it put the account straight back the moment the window opened, 0.34 s after the delete (owner
+    /// 2026-11-20: signing out then in went back to the same account, with no page to choose another).
+    /// lingbz112's WestPlay-CN clears the profile's data as a whole (`ICoreWebView2Profile2`), which is
+    /// what this does now, with `DeleteAllCookies` as the fallback.
+    fn forget_cookies(&self) {
+        use webview2_com::ClearBrowsingDataCompletedHandler;
+        use webview2_com::Microsoft::Web::WebView2::Win32::{
+            COREWEBVIEW2_BROWSING_DATA_KINDS_COOKIES, ICoreWebView2_13, ICoreWebView2Profile2,
+        };
+        use windows::core::Interface;
+        // SAFETY: the WebView is alive while `self` is; the profile is its own.
+        // `Profile()` hands back the base interface; the clearing lives on the second one.
+        let profile = unsafe { self.webview.cast::<ICoreWebView2_13>().ok() }
+            .and_then(|thirteen| unsafe { thirteen.Profile().ok() })
+            .and_then(|base| base.cast::<ICoreWebView2Profile2>().ok());
+        if let Some(profile) = profile {
+            let cleared = ClearBrowsingDataCompletedHandler::wait_for_async_operation(
+                // SAFETY: the profile is alive through the call, and the handler keeps itself so.
+                Box::new(move |handler| unsafe {
+                    profile
+                        .ClearBrowsingData(COREWEBVIEW2_BROWSING_DATA_KINDS_COOKIES, &handler)
+                        .map_err(webview2_com::Error::WindowsError)
+                }),
+                Box::new(|error| error),
+            );
+            crate::log!("[signin] {}: its profile's cookies cleared ({cleared:?})", self.site.title);
+            if cleared.is_ok() {
+                return;
+            }
+        }
+        // SAFETY: the WebView is alive while `self` is, and so is its cookie manager.
+        if let Some(manager) = unsafe { self.webview.cast::<webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2_2>().ok() }
+            .and_then(|two| unsafe { two.CookieManager().ok() })
+        {
+            // SAFETY: as above.
+            let done = unsafe { manager.DeleteAllCookies() };
+            crate::log!("[signin] {}: every cookie deleted ({done:?})", self.site.title);
+        }
     }
 
     pub fn bring_forward(&self) {

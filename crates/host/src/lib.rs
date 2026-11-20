@@ -123,8 +123,8 @@ pub struct Status {
     /// from the save's fitted parts). `None` in a truck, with no game, or before the coach's parts are
     /// read: the companion's Coach speakers is greyed out then (owner 2026-11-13).
     pub coach_speakers: Option<u32>,
-    /// Whether the game runs with higher privileges than WestPlay. Direct readers (such as weather)
-    /// can be limited by Windows. A compatible game plugin publishes its own route snapshots.
+    /// Whether the game runs as administrator: WestPlay can't read its route, guidance or weather then
+    /// ([`is_elevated`]), and the player is told to start it normally.
     pub game_elevated: bool,
     /// Whether the game's own WestPlay plugin is another build's: it can't be seen at all then (every build's
     /// bridge is a name of its own), and WestPlay puts its own in as soon as the game closes
@@ -724,6 +724,30 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
                         .filter(|app| app.site() == which.app())
                         .map(|app| app.environment().clone())
                 };
+                // Signed out of QQ Music: its own player is told at once, not when the window gets
+                // round to saying it (the player may close that window): the kept session goes and the
+                // page forgets the account, or the cab went on as the account it just left.
+                if action == AccountAction::SignOut && which == weblogin::Site::QqMusic {
+                    // Its own player goes first: the page holds the account in memory, and put its
+                    // cookies back the moment they were cleared. Closed, wiped and rebuilt on the next
+                    // ask, the next sign-in finds nothing to sign in with — a page of its own to choose
+                    // an account on, as every other site's (owner 2026-11-19).
+                    if let Some(app) = qq_music.take() {
+                        app.close(&stage);
+                        log!("[qq music] its player closed for the sign-out");
+                    }
+                    // Its page, when it runs; its kept file either way — the window the player is left
+                    // looking at only says it's done once they close it (weblogin.rs `QQ_MUSIC_OUT`),
+                    // and without this the cab went on as the account they just left (owner 2026-11-19).
+                    let cleared = match &qq_music {
+                        Some(app) => app.sign_out().map_err(|error| error.message().to_owned()),
+                        None => {
+                            qq_music::QqMusic::forget_session(&config.data_dir.join("webview2-qq-music"))
+                                .map_err(|error| error.to_string())
+                        }
+                    };
+                    log!("[qq music] signed out: its session cleared ({cleared:?})");
+                }
                 web_logins.command(which, action, open_in.as_ref());
             }
         }
@@ -735,6 +759,17 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
             {
                 let _ = app.command(&webapp::Command::Reload);
             }
+            // Signed out (in the companion, or in the site's own window): its player forgets the account
+            // too, kept session and all — the other half of the sign-in below.
+            if done == weblogin::Done::SignedOut && which == weblogin::Site::QqMusic {
+                // `Ok` either way it's forgotten; the error shows only in the log.
+                let cleared = match &qq_music {
+                    Some(app) => app.sign_out().map_err(|error| error.message().to_owned()),
+                    None => qq_music::QqMusic::forget_session(&config.data_dir.join("webview2-qq-music"))
+                        .map_err(|error| error.to_string()),
+                };
+                log!("[qq music] signed out: its player forgot the account ({cleared:?})");
+            }
             // QQ Music's own player: its sign-in window's cookies go to its hidden page, which
             // re-sends them to the layer (its account pool then has them: qq_music.rs's `apply_cookies`).
             if done == weblogin::Done::SignedIn && which == weblogin::Site::QqMusic {
@@ -744,9 +779,19 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
                     qq_music.is_some(),
                     taken.as_deref().map_or("none".to_owned(), |c| format!("{} chars", c.len()))
                 );
-                if let (Some(app), Some(cookies)) = (&qq_music, taken) {
-                    let posted = app.apply_cookies(&cookies);
-                    log!("[qq music] credential posted: {posted:?}");
+                match (&qq_music, taken) {
+                    (Some(app), Some(cookies)) => {
+                        let posted = app.apply_cookies(&cookies);
+                        log!("[qq music] credential posted: {posted:?}");
+                    }
+                    // Its page isn't running (the player signed in from the companion before opening QQ
+                    // Music in the cab): the cookies go to the file the page reads back as it starts, or
+                    // the sign-in would be dropped and the app ask for one again (owner 2026-11-19).
+                    (None, Some(cookies)) => {
+                        log!("[qq music] its page isn't running yet: the credential is kept for when it is");
+                        qq_music::QqMusic::remember_session(&config.data_dir.join("webview2-qq-music"), &cookies);
+                    }
+                    _ => {}
                 }
             }
         }
@@ -782,7 +827,7 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
                 // upstream's says elevated whenever the game is).
                 game_elevated = is_elevated(pid) && !is_elevated(std::process::id());
                 if game_elevated {
-                    log!("the game runs as administrator: direct game readers may be restricted by Windows");
+                    log!("the game runs as administrator: WestPlay can't read its route, guidance or weather");
                 }
             }
             let under_truckersmp = if !running {
@@ -1660,7 +1705,7 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
                     }
                 }
             } else if since.elapsed() >= Duration::from_secs(6) {
-                // With an elevated game, an older plugin can accept the route without a readable reply.
+                // The game took it, but its route can't be read in a game run as administrator: said so.
                 let answer = if game_elevated { "elevated" } else { "noAnswer" };
                 let _ = webview.post_json(&followed_message(follow.id, false, answer));
                 following = None;
@@ -2267,7 +2312,19 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
             );
             let game_frame = plugin.heartbeat.load(Ordering::Acquire);
             let (electrics, paused) = (telemetry.electric_enabled, telemetry.paused);
-            let outside = camera.outside(truck.id.as_str(), cab_drawn, game_frame, electrics, paused);
+            // The camera's own distance from the seat, first: "out of the cab" is that (`camera.rs`
+            // `OUTSIDE_METRES`), the screen's drawing only the answer when the game won't say where
+            // its camera is — the third-person one often still draws WestPlay's screen, and the sound
+            // never went dull (owner 2026-11-19).
+            let metres = camera::Camera::camera_metres(&telemetry);
+            let outside = camera.outside_with_camera(
+                truck.id.as_str(),
+                cab_drawn,
+                game_frame,
+                electrics,
+                paused,
+                metres,
+            );
             if outside != was_outside {
                 was_outside = outside;
                 log!("camera: {} the cab", if outside { "outside" } else { "in" });
@@ -2613,8 +2670,10 @@ fn is_shown(game: u32) -> bool {
     looking.shown
 }
 
-/// Whether the process `game` runs as administrator. A token Windows denies access to also counts as elevated
-/// when reporting limitations of direct game readers.
+/// Whether the process `game` (its pid) runs as administrator (elevated), as Task Manager's "Elevated" says: then
+/// Windows keeps WestPlay out of it, and the game's route, guidance and weather can't be read. WestPlay doesn't
+/// work with a game run that way (owner 2026-10-28: nothing that reaches into an elevated game); the player is
+/// told. A token WestPlay isn't let read counts as elevated: it's kept out all the same.
 fn is_elevated(game: u32) -> bool {
     use windows::Win32::Foundation::{CloseHandle, E_ACCESSDENIED, HANDLE};
     use windows::Win32::Security::{GetTokenInformation, TOKEN_ELEVATION, TOKEN_QUERY, TokenElevation};
@@ -3286,8 +3345,16 @@ fn route_message_for(update: &RouteUpdate) -> String {
                 .iter()
                 .map(|n| [n.position[0], n.position[1], n.forward[0], n.forward[1], n.distance_left, n.height])
                 .collect();
-            serde_json::json!({ "type": "route", "id": id, "nodes": nodes, "activeEnd": coach_stops.first(), "coachStops": coach_stops })
-                .to_string()
+            // A Coaches job marks its waypoints along the route (PR #6): the page highlights up to the
+            // next one and draws the rest dimmer.
+            serde_json::json!({
+                "type": "route",
+                "id": id,
+                "nodes": nodes,
+                "activeEnd": coach_stops.first(),
+                "coachStops": coach_stops,
+            })
+            .to_string()
         }
         RouteUpdate::Paths { id, paths, maneuvers, shifts } => {
             let maneuvers: Vec<serde_json::Value> = maneuvers
@@ -3812,19 +3879,11 @@ mod tests {
                 id: 5,
                 nodes: vec![node],
                 waypoints: vec![],
-                coach_stops: vec![]
+                // PR #6's own field: the Coaches waypoints, none here.
+                coach_stops: vec![],
             }),
             r#"{"activeEnd":null,"coachStops":[],"id":5,"nodes":[[1.0,2.0,0.0,-1.0,1500.0,3.0]],"type":"route"}"#
         );
-        let coach_route: serde_json::Value = serde_json::from_str(&super::route_message_for(&RouteUpdate::Route {
-            id: 6,
-            nodes: vec![node; 5],
-            waypoints: vec![],
-            coach_stops: vec![1, 2, 3],
-        }))
-        .unwrap();
-        assert_eq!(coach_route["activeEnd"], 1);
-        assert_eq!(coach_route["coachStops"], serde_json::json!([1, 2, 3]));
         assert_eq!(super::route_message_for(&RouteUpdate::Next(3)), r#"{"next":3,"type":"routeNext"}"#);
         assert_eq!(
             super::route_message_for(&RouteUpdate::Paths {

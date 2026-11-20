@@ -1,6 +1,15 @@
 import { type CSSProperties, type ReactNode } from 'react'
 import type { AppleMusicItem, AppleMusicSection } from '../../../shared/host'
-import { openView, playFrom, qqMusic, useAsked, useQqMusic, useShownAgain, type View } from './qqMusic'
+import {
+  openView,
+  playFrom,
+  qqMusic,
+  useAsked,
+  useQqMusic,
+  useShownAgain,
+  useSignInChanges,
+  type View,
+} from './qqMusic'
 import { Cover } from '../music/parts'
 import { Failed, Loading } from '../music/parts'
 import { PlayActions, QqSection, QqSongRow, QqTile } from './parts'
@@ -55,7 +64,9 @@ function Sections({ sections }: { sections: AppleMusicSection[] }) {
 
 /** Home: the recommended playlist wall and new songs from the local layer. */
 export function Home({ shown }: { shown: boolean }) {
-  const asked = useAsked({ ask: 'home' }, useShownAgain(shown))
+  // The account's own picks: asked again whenever it changes (signed in or out), not just when the page
+  // is shown again.
+  const asked = useAsked({ ask: 'home' }, useShownAgain(shown) + useSignInChanges())
   return (
     <Answered asked={asked} title="QQ 音乐">
       {(page) => (

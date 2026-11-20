@@ -98,11 +98,12 @@ impl Layer {
             // 65 requests in a row all answered 200 with this).
             //
             // The whole section goes as JSON: its reader splits environment keys on underscores, so a
-            // nested `QQMUSIC_SECURITY__RATE_LIMIT_EXEMPT_IPS` would be taken apart wrong.
-            .env(
-                "QQMUSIC_SECURITY",
-                serde_json::json!({ "rate_limit_exempt_ips": ["127.0.0.1", "::1"] }).to_string(),
-            )
+            // nested `QQMUSIC_SECURITY__RATE_LIMIT_EXEMPT_IPS` would be taken apart wrong. That section
+            // carries more than the exemption (its CORS origins and credentials above all), so the
+            // bundled `config.toml` is read first and only this one key is added — replacing the section
+            // outright dropped CORS and every signed-in request came back 422 (owner 2026-11-19: the
+            // app's own page couldn't load, while anonymous requests answered fine).
+            .env("QQMUSIC_SECURITY", security_with_exemption(&web))
             // Its own console is hidden: nothing of it shows in the cab.
             .stdin(Stdio::null())
             .stdout(Stdio::null())
@@ -236,6 +237,59 @@ fn plain(path: PathBuf) -> PathBuf {
 
 /// Whether something answers on the layer's port now (a plain connect: the layer's own `/` says
 /// nothing more).
+/// The layer's `[security]` section from its own `config.toml`, with loopback added to
+/// `rate_limit_exempt_ips` (its own calls: see `start`). Unreadable: just the exemption.
+fn security_with_exemption(web: &std::path::Path) -> String {
+    let mut section = std::fs::read_to_string(web.join("config.toml"))
+        .ok()
+        .and_then(|text| toml_section(&text, "security"))
+        .unwrap_or_default();
+    section.insert("rate_limit_exempt_ips".into(), serde_json::json!(["127.0.0.1", "::1"]));
+    serde_json::Value::Object(section).to_string()
+}
+
+/// A `[name]` section of `text` as JSON values: `key = value` lines, the four kinds `config.toml` uses
+/// (strings, numbers, booleans, and arrays of strings). `None` when there's no such section.
+fn toml_section(text: &str, name: &str) -> Option<serde_json::Map<String, serde_json::Value>> {
+    let header = format!("[{name}]");
+    let mut section = serde_json::Map::new();
+    let mut inside = false;
+    let mut seen = false;
+    for line in text.lines() {
+        let line = line.trim();
+        if line.starts_with('[') {
+            inside = line == header;
+            seen |= inside;
+            continue;
+        }
+        if !inside || line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let Some((key, value)) = line.split_once('=') else {
+            continue;
+        };
+        let (key, value) = (key.trim(), value.trim());
+        // A trailing `# comment` off a value that isn't quoted.
+        let value = if value.starts_with('"') || value.starts_with('[') {
+            value
+        } else {
+            value.split('#').next().unwrap_or(value).trim()
+        };
+        let parsed = serde_json::from_str::<serde_json::Value>(value).ok().or_else(|| {
+            // The TOML its reader writes: `["a", "b"]` is JSON already; a lone string may hold an
+            // apostrophe or a `#`, which JSON takes as it is.
+            value
+                .strip_prefix('"')
+                .and_then(|rest| rest.strip_suffix('"'))
+                .map(|inner| serde_json::Value::String(inner.to_owned()))
+        });
+        if let Some(parsed) = parsed {
+            section.insert(key.to_owned(), parsed);
+        }
+    }
+    seen.then_some(section)
+}
+
 /// The ports the layer may answer on, in order: 8080, the one WestPlay has always used, then the ones
 /// it moves to when something else has that (Steam's own browser does, on players' PCs).
 const PORTS: &[u16] = &[PORT, 18080, 18081, 18082, 18083, 8080];

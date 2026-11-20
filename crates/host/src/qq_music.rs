@@ -18,6 +18,7 @@ use webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2Environment;
 /// string the sign-in window gave, kept across starts.
 const SESSION_FILE: &str = "session";
 
+
 /// The player's volume kept last run (`data_dir/webview2-qq-music/volume`): a share of full
 /// loudness, 0 to 1. The page's own storage can't keep it (its document has no origin), and a
 /// player who set the volume once doesn't mean to set it at every start (owner 2026-11-16).
@@ -602,6 +603,63 @@ impl QqMusic {
         write_session(&self.user_data, cookies);
         let message = serde_json::json!({ "action": "credential", "cookies": cookies }).to_string();
         self.view.post_json(&message)
+    }
+
+    /// Signs out: the kept session goes, and the page forgets the account it had (the cookie and the
+    /// credential pairs made from it), so what it asks from now on isn't the account's. The companion's
+    /// Log out says this, and so does a sign-out in the site's own window.
+    ///
+    /// Without it the page kept playing as the account just left, and the file brought it back at the
+    /// next start (owner 2026-11-19: signed out in the companion, still signed in in the cab).
+    pub fn sign_out(&self) -> windows::core::Result<()> {
+        let _ = std::fs::remove_file(self.user_data.join(SESSION_FILE));
+        *self.restore_cookie.borrow_mut() = None;
+        let message = serde_json::json!({ "action": "credential", "cookies": "" }).to_string();
+        self.view.post_json(&message)?;
+        // Its profile's own cookies go with it, now, while its page is the one holding them: clearing
+        // them later (as the sign-in window opened) was too late — this page put them back the moment
+        // they were taken, and the next sign-in found the account still signed in, with no page to pick
+        // another one (owner 2026-11-19). Done here, the page has nothing left to restore.
+        use webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2_2;
+        use windows::core::Interface;
+        // SAFETY: the WebView is alive while `self` is; the manager is its own.
+        if let Some(manager) = self
+            .view
+            .core()
+            .cast::<ICoreWebView2_2>()
+            .ok()
+            .and_then(|two| unsafe { two.CookieManager().ok() })
+        {
+            for url in [
+                "https://y.qq.com/",
+                "https://c.y.qq.com/",
+                "https://u.y.qq.com/",
+                "https://ptlogin2.qq.com/",
+                "https://graph.qq.com/",
+            ] {
+                // SAFETY: the manager and both strings are ours, alive through the call.
+                // `DeleteCookies(name, uri)`: an empty name takes every cookie of that address.
+                let _ = unsafe { manager.DeleteCookies(&windows::core::HSTRING::from(""), &windows::core::HSTRING::from(url)) };
+            }
+        }
+        Ok(())
+    }
+
+    /// Drops the kept session without a page to tell: signed out while QQ Music's own player wasn't
+    /// running, its file would bring the account back at the next start.
+    ///
+    /// The profile's own cookies go too (`forget_profile_cookies`): the file is what WestPlay keeps, but
+    /// the browser holds the account itself, and the next page found it still signed in.
+    pub fn forget_session(user_data: &Path) -> std::io::Result<()> {
+        std::fs::remove_file(user_data.join(SESSION_FILE))
+    }
+
+    /// Keeps `cookies` for the next start without a page to hand them to: the companion's sign-in
+    /// window took them while QQ Music's own player wasn't running, and `start` reads the file back as
+    /// it opens (`restore_cookie`). Without it that sign-in was lost, and the app went on with no
+    /// credential (owner 2026-11-19, a player's log: `cred: NONE`, `result 104003`).
+    pub fn remember_session(user_data: &Path, cookies: &str) {
+        write_session(user_data, cookies);
     }
 
     /// Stage a persisted cookie to be handed to the hidden page once it reports ready (a message sent
