@@ -1178,6 +1178,19 @@
 /* --- Now Playing ------------------------------------------------------------------------------------------ */
 
 /* Rises from the bar over the whole app, washed in the song's own colour. */
+/* The words' ink, from what they sit on: the page reads the cover (contrast.ts's `useWordsOver`) and says
+   which side they belong on. White on a pale cover was lost (owner 2026-11-20); the switch is the same one
+   the cursor and Apple Music's glass make. Attributed on the page itself, so everything inside follows. */
+.ne-app .ne-now {
+  --ne-ink: #fff;
+  --ne-ink-dim: var(--ne-on-colour);
+}
+
+.ne-app .ne-now[data-words='light'] {
+  --ne-ink: #121212;
+  --ne-ink-dim: rgb(18 18 18 / 0.72);
+}
+
 .ne-app .ne-now {
   position: absolute;
   z-index: 5;
@@ -1393,6 +1406,7 @@
 
 /* The song's name: Now Playing's one big thing. */
 .ne-app .ne-now-name {
+  color: var(--ne-ink);
   font-size: calc(44px * var(--text-scale, 1));
   font-weight: 700;
   letter-spacing: -0.02em;
@@ -1414,7 +1428,7 @@
 .ne-app .ne-now-artists {
   font-size: calc(32px * var(--text-scale, 1));
   font-weight: 600;
-  color: var(--ne-on-colour);
+  color: var(--ne-ink-dim);
 }
 
 .ne-app .ne-now-artists button {
@@ -1427,7 +1441,7 @@
 .ne-app .ne-now-album {
   font-size: calc(24px * var(--text-scale, 1));
   font-weight: 550;
-  color: var(--ne-on-colour);
+  color: var(--ne-ink-dim);
   text-decoration: underline;
   text-underline-offset: 3px;
   text-decoration-color: rgb(255 255 255 / 0.28);
@@ -1696,7 +1710,7 @@
   line-height: 1.22;
   /* The words take the app's own ink rather than a fixed white: Now Playing's wash is light in the light
      appearance, and white words over it were invisible there (the owner's dark-mode report). */
-  color: var(--ne-lyric);
+  color: var(--ne-ink);
   opacity: 0.3;
   transition:
     opacity 0.45s ease,
@@ -1712,7 +1726,7 @@
    doesn't reflow on every line change: the line grows in place and the ones around it keep their room, which is
    what keeps the scroll from juddering. */
 .ne-app .ne-lyric.now {
-  color: var(--ne-lyric-now);
+  color: var(--ne-ink);
   /* Lit, not enlarged: Apple Music lights the line it's on, and enlarging one pushed the column's
      other lines about as it moved. */
   opacity: 1;

@@ -39,7 +39,7 @@ export function hueOf(name: string, id = 0): number {
  * WebGL's `readPixels` isn't tainted by a cross-origin `img`, so the colour comes out. `null` where the page
  * has no WebGL, or the picture won't load (the app then keeps the name's own colour).
  */
-export function coverColour(url: string): Promise<{ hue: number; saturation: number } | null> {
+export function coverColour(url: string): Promise<CoverColour | null> {
   if (!url || typeof document === 'undefined') return Promise.resolve(null)
   return new Promise((resolve) => {
     const image = new Image()
@@ -47,7 +47,7 @@ export function coverColour(url: string): Promise<{ hue: number; saturation: num
     image.crossOrigin = 'anonymous'
     image.referrerPolicy = 'no-referrer'
     let settled = false
-    const done = (value: { hue: number; saturation: number } | null) => {
+    const done = (value: CoverColour | null) => {
       if (settled) return
       settled = true
       resolve(value)
@@ -71,7 +71,7 @@ export function coverColour(url: string): Promise<{ hue: number; saturation: num
 }
 
 /** The colour of a loaded picture, as its dominant hue and saturation (WebGL's own 1×1 read). */
-function readColour(image: HTMLImageElement): { hue: number; saturation: number } | null {
+function readColour(image: HTMLImageElement): CoverColour | null {
   const canvas = document.createElement('canvas')
   canvas.width = 1
   canvas.height = 1
@@ -91,19 +91,46 @@ function readColour(image: HTMLImageElement): { hue: number; saturation: number 
   return rgbToHsl(r / 255, g / 255, b / 255)
 }
 
+/** What a cover says of itself: its hue (degrees), its saturation, and how light it is (0 to 1). */
+export interface CoverColour {
+  hue: number
+  saturation: number
+  lightness: number
+}
+
+/**
+ * The colour the words and the artist's name take, from the cover: the same hue and saturation as the wash,
+ * but light or dark *against the cover* rather than always white.
+ *
+ * White words over a pale cover were barely there (owner 2026-11-20, with the screenshot): a light cover
+ * made the page light, and nothing stood off it. A cover above the middle takes dark ink, below it light —
+ * both from its own colour, so the page still reads as the song's.
+ */
+export function inkFrom(colour: CoverColour | null): { ink: string; dim: string } {
+  if (!colour) {
+    return { ink: 'rgb(255 255 255 / 0.96)', dim: 'rgb(255 255 255 / 0.72)' }
+  }
+  const saturation = Math.min(60, Math.max(22, colour.saturation * 100 * 0.8))
+  const hue = Math.round(colour.hue)
+  // Its own lightness, pushed to whichever end keeps it clear of the cover it came from.
+  return colour.lightness > 0.55
+    ? { ink: `hsl(${hue} ${Math.round(saturation)}% 16%)`, dim: `hsl(${hue} ${Math.round(saturation)}% 30%)` }
+    : { ink: `hsl(${hue} ${Math.round(saturation)}% 97%)`, dim: `hsl(${hue} ${Math.round(saturation)}% 78%)` }
+}
+
 /** `r`, `g`, `b` (0 to 1) as a hue in degrees and a saturation (0 to 1). */
-function rgbToHsl(r: number, g: number, b: number): { hue: number; saturation: number } {
+function rgbToHsl(r: number, g: number, b: number): CoverColour {
   const max = Math.max(r, g, b)
   const min = Math.min(r, g, b)
   const lightness = (max + min) / 2
   const delta = max - min
-  if (delta < 0.0001) return { hue: 0, saturation: 0 }
+  if (delta < 0.0001) return { hue: 0, saturation: 0, lightness }
   const saturation = lightness > 0.5 ? delta / (2 - max - min) : delta / (max + min)
   let hue: number
   if (max === r) hue = ((g - b) / delta + (g < b ? 6 : 0)) / 6
   else if (max === g) hue = ((b - r) / delta + 2) / 6
   else hue = ((r - g) / delta + 4) / 6
-  return { hue: hue * 360, saturation }
+  return { hue: hue * 360, saturation, lightness }
 }
 
 /**

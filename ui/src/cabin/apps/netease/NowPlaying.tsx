@@ -15,6 +15,7 @@ import {
 import { Crossfade } from '../music/Crossfade'
 import { songCover } from './look'
 import { coverColour, hueOf, tintOf, washFrom } from './look'
+import { useWordsOver } from '../music/contrast'
 import { lineAt, type Words } from './lyrics'
 import {
   currentTrack,
@@ -123,6 +124,16 @@ function useWash(track: Song): string {
   return wash
 }
 
+/**
+ * What the words sit on in this page (the shape `wordsOver` takes): the blurred cover, faint under the wash
+ * the page paints over it. The cover's own share of the colour is small there, so a pale one still reads light
+ * enough to want dark words.
+ */
+const BACKDROP = {
+  light: { cover: 0.22, rest: [236, 232, 236] as [number, number, number] },
+  dark: { cover: 0.22, rest: [232, 228, 232] as [number, number, number] },
+}
+
 export function NowPlaying() {
   const open = useNetease((state) => state.nowPlaying)
   const showLyrics = useNetease((state) => state.lyrics)
@@ -133,6 +144,10 @@ export function NowPlaying() {
   // The cover's own colour, as the page's wash (reading the picture is a hook: it runs whether or not the
   // sheet is open, so it's already read the moment it is).
   const wash = useWash(track ?? EMPTY_SONG)
+  // Whether the words should be dark here, read off the cover the way the cursor and Apple Music's glass do:
+  // a pale cover takes dark words (owner 2026-11-20 — white ones were lost on it). The page shows its words
+  // over the blurred cover under a dark wash, so that veil is what they sit on.
+  const words = useWordsOver(track?.picture ?? null, 'light', BACKDROP)
   if (!playback || !track) return null
   const close = () => useNetease.setState({ nowPlaying: false })
   const toArtist = () => {
@@ -143,6 +158,7 @@ export function NowPlaying() {
     <div
       className={open ? 'ne-now open' : 'ne-now'}
       style={{ '--song': wash } as CSSProperties}
+      data-words={words}
       aria-hidden={!open}
     >
       {/* The cover itself, blown up and blurred under a dark wash: the page's colour comes from the song,
