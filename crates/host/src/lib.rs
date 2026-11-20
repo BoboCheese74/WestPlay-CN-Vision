@@ -22,6 +22,8 @@ mod lyrics;
 mod map_process;
 pub mod maps;
 mod music_folder;
+mod netease_music;
+pub mod netease_layer;
 mod performance;
 mod planner;
 mod play_log;
@@ -450,6 +452,10 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
     let mut spatial = config.settings.get().sound.spatial;
     // The music's spectrum wanted by the cab (its Equalizer open): asked of the players with the cab.
     let mut spectrum = false;
+    // The cab as last told to the cab's own page (NetEase Cloud Music's app places its sound the same way the
+    // music pages do): speakers, head, camera and tone, sent again only as one changes.
+    let mut cab_told: Option<(Option<Vec<speakers::Speaker>>, speakers::Head, bool, f32, speakers::Equalizer)> =
+        None;
     // The screen's light (`brightness.rs`), as the page's Settings set it: full till it says.
     let mut screen_light = 1.0;
     // Where the page is on the frame (`westplay_shared::page_place`): the whole frame until a screen asks for another
@@ -573,7 +579,16 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
     let mut qq_music: Option<qq_music::QqMusic> = None;
     // The app's questions that came before its Start: asked again once the page is up.
     let mut qq_music_early: Vec<qq_music::Command> = Vec::new();
-    let mut webapp_message: Option<String> = None;
+    // NetEase Cloud Music's layer (`netease_layer`): the app starts it, and the host finds the port it
+    // came up on. The page asks this host for it, then talks to the layer itself over the loopback.
+    let netease = netease_music::Netease::new();
+    if let Some((port, _signed_in, _nickname)) = netease_layer::PORTS
+        .iter()
+        .copied()
+        .find_map(|port| netease_layer::health(port).map(|health| (port, health.0, health.1)))
+    {
+        netease.started(port);
+    }    let mut webapp_message: Option<String> = None;
     let mut webapp_typed = 0u32;
     let mut webapp_selected = 0u32;
     // The cabin's own Chinese input method is reading the player's keys for the page's field: they're kept
@@ -1465,6 +1480,16 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
                         // Nothing to pause: Radio isn't running.
                     } else if let Some(player) = start_radio(&mut radio, &stage, &config) {
                         player.command(&command);
+                    }
+                }
+                // NetEase Cloud Music's layer: where it is, and asking it to forget the account.
+                Some(PageMessage::NeteasePort) => {
+                    let _ = webview.post_json(&netease.message());
+                }
+                Some(PageMessage::NeteaseSignOut) => {
+                    if let Some(port) = netease.port() {
+                        netease_music::sign_out(port);
+                        let _ = webview.post_json(&netease.message());
                     }
                 }
                 Some(PageMessage::QqMusic { command }) => {
@@ -2389,6 +2414,21 @@ pub fn run(mut config: Config, stop: Arc<AtomicBool>) -> Result<(), Error> {
             if let Some(browser) = &mut safari {
                 browser.cab(truck_speakers, head, outside, distance, equalizer, spectrum);
             }
+            // The cab's own page too: NetEase Cloud Music's app plays through the page's own element, so its
+            // sound is placed here, told the same speakers, head, camera and tone as the music pages are —
+            // only as one of them changes, since this loop runs every game frame and the page needn't hear
+            // that often.
+            let cab_now = (truck_speakers.map(<[speakers::Speaker]>::to_vec), head, outside, distance, equalizer);
+            if cab_told.as_ref() != Some(&cab_now) {
+                cab_told = Some(cab_now);
+                let _ = webview.post_json(&speakers::cab_message(
+                    truck_speakers,
+                    head,
+                    outside,
+                    distance,
+                    equalizer,
+                ));
+            }
         }
 
         // TruckersMP's players around the player, as the plugin last wrote them: to the page as they change (each
@@ -3233,7 +3273,11 @@ enum PageMessage {
     Safari { command: safari::Command },
     /// A command for QQ Music's own player (`qqMusic`): its questions, what it plays, how.
     QqMusic { command: qq_music::Command },
-    /// The text field selected on the page, a number that changes with every selection (0: none), for the
+    /// The page asks for NetEase Cloud Music's layer: its port, so it can start asking it
+    /// (`netease_music`, `netease_layer`). Answered with the `netease` message.
+    NeteasePort,
+    /// The page asks the layer to forget its account (the layer itself is told over the loopback).
+    NeteaseSignOut,    /// The text field selected on the page, a number that changes with every selection (0: none), for the
     /// player's own keyboard to type into (`typing`).
     Typing { selection: u32 },
     /// A change to the game's route (Maps' search): at a map node (its uid in hex) to go or add a stop; `id`

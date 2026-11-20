@@ -275,7 +275,14 @@ export type HostMessage =
   | { type: 'spotify'; signedIn: boolean | null; playing: boolean | null; signingIn: boolean }
   /** QQ Music's own player: signed in, playing, the player's avatar. */
   | { type: 'qqMusic'; signedIn: boolean | null; playing: boolean | null; avatar: string | null }
-  /** An answer to one of the app's questions (`ask`'s id). */
+
+  /**
+   * NetEase Cloud Music's local layer: which port it answers on, and whether an account is signed in.
+   * The page asks the layer itself over the loopback (`apps/netease`), so this is only what it needs
+   * to find it — the account's cookie never comes near the page. `port` is `null` while the layer
+   * isn't running.
+   */
+  | { type: 'netease'; port: number | null; signedIn: boolean; nickname: string }  /** An answer to one of the app's questions (`ask`'s id). */
   | ({ type: 'qqMusicAnswer'; id: number; failed?: boolean } & Partial<QqMusicAnswers>)
   /** What QQ Music plays. */
   | { type: 'qqMusicPlayback'; playback: QqMusicPlayback | null }
@@ -445,7 +452,11 @@ export type PageMessage =
   | { type: 'radio'; command: RadioCommand }
   /** A command for QQ Music's own player. */
   | { type: 'qqMusic'; command: QqMusicCommand }
-  /** What the Safari app asks of its pages (`westplay_host::safari::Command`). */
+
+  /** The page asks for NetEase Cloud Music's layer: its port, or `null` when it isn't running. */
+  | { type: 'neteasePort' }
+  /** The page asks the layer to forget its account (the layer itself is told over the loopback). */
+  | { type: 'neteaseSignOut' }  /** What the Safari app asks of its pages (`westplay_host::safari::Command`). */
   | { type: 'safari'; command: SafariCommand }
   | { type: 'refreshRate'; rate: '60' | '30' }
   | { type: 'trafficLights'; on: boolean }
@@ -1520,4 +1531,31 @@ export interface RadioPlayback {
   radioId: number
   requestId?: number
   error?: string
+}
+
+/** Which of the sound's channels a truck speaker plays (the host's `speakers::Channel`). */
+export type SpeakerChannel = 'left' | 'right' | 'both'
+
+/** A truck's own speaker, placed in its cab (the host's `speakers::Speaker`): what it plays and where it sits, in
+ * the SDK's cab space (metres, x right, y up, z back from the cab's middle). */
+export interface Speaker {
+  /** What it plays: from this many Hz up to that many (0: no limit that way). */
+  band: [number, number]
+  /** How loud, against the others (dB). */
+  level: number
+  channel: SpeakerChannel
+  /** Where it is in the cab (cab space, metres). */
+  at: [number, number, number]
+  /** How much later it plays than the rest (ms). */
+  delay: number
+}
+
+/** The driver's head in the cab, and which way it faces (the host's `speakers::Head`): turns, heading left of
+ * forward, pitch up. */
+export interface CabHead {
+  x: number
+  y: number
+  z: number
+  heading: number
+  pitch: number
 }

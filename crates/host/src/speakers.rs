@@ -1364,6 +1364,29 @@ pub fn spectrum_message(bars: &[u8]) -> String {
     serde_json::json!({ "type": "spectrum", "bars": bars }).to_string()
 }
 
+/// The truck's speakers and the cab around them, for the cab's own page to place a player's sound the same way
+/// the music pages do (`cab_sound.js`): `{"type":"cab","speakers":[…],"head":{…},"outside":bool,"distance":m,
+/// "equalizer":{…}}`. `speakers` is `null` with spatial sound off (the sound plays as it is) or a truck none is
+/// known for. The cab page's own player (NetEase Cloud Music's app) takes it into the same graph the music
+/// services' pages use, so its sound comes from the truck's speakers too (owner 2026-11-20).
+pub fn cab_message(
+    speakers: Option<&[Speaker]>,
+    head: Head,
+    outside: bool,
+    distance: f32,
+    equalizer: Equalizer,
+) -> String {
+    serde_json::json!({
+        "type": "cab",
+        "speakers": speakers.map(<[Speaker]>::to_vec),
+        "head": head,
+        "outside": outside,
+        "distance": distance,
+        "equalizer": equalizer,
+    })
+    .to_string()
+}
+
 /// Whether speakers are ones a vehicle can have: a cab's handful or a coach's rows ([`MOST_SPEAKERS`]), each within a
 /// coach's length of its cab's middle, playing what can be heard, at a sensible level.
 pub fn are_sound(speakers: &[Speaker]) -> bool {

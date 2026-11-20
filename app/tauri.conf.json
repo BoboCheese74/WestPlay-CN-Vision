@@ -47,7 +47,8 @@
     ],
     "resources": {
       "../ui/dist/": "ui/",
-      "../assets/westplay.scs": "westplay.scs"
+      "../assets/westplay.scs": "westplay.scs",
+      "../netease-layer/": "netease-layer/"
     },
     "windows": {
       "nsis": {

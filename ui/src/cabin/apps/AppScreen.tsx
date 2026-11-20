@@ -7,6 +7,7 @@ import { CalendarApp } from './calendar/CalendarApp'
 import { useLanguage, useText } from '../state/text'
 import { isCopied, noteOpened, openedBefore, saveCopy, savedCopy } from './launchCopies'
 import { MusicApp } from './music/MusicApp'
+import { NeteaseApp } from './netease/NeteaseApp'
 import { QqApp } from './qq/QqApp'
 import { PlayerApp } from './player/PlayerApp'
 import { RadioApp } from './radio/RadioApp'
@@ -86,7 +87,9 @@ function AppContent({ app }: { app: AppId }) {
     // Douyin and Kugou Music (apps/web, westplay_host::webapp). Each keeps the id of the app it
     // stands in for (the older app's slot, its icon and its name being the site's now).
     case 'spotify':
-      return <WebApp site="netease" />
+      // NetEase Cloud Music, drawn by the page itself (`apps/netease`): a self-drawn app over the
+    // local layer the app starts, in the slot Spotify used to have (as the site had).
+    return <NeteaseApp />
     case 'youtube':
       return <WebApp site="bilibili" />
     case 'youtubeMusic':

@@ -1,0 +1,2065 @@
+/* The NetEase Cloud Music app (NeteaseApp.tsx): NetEase's own look, sized for the cab. NetEase's red for what's on
+   and what plays, its near-black ground and grey raised cards; type in Figtree, close to the app's own rounded
+   sans, bold where NetEase is bold. Colour otherwise comes from the covers.
+
+   NetEase's app is dark on every phone, and this one follows the cab's own appearance instead: the tokens below are
+   the dark look, and `.shell.appearance-light` (the cab's light mode) gives them light values. The service sends no
+   colours with its covers, so the app picks one from each name (look.ts).
+
+   Every size, corner, colour and motion comes from the tokens here: one type scale, one set of corners, two heights
+   of pill, one gutter. Every rule is scoped to the app (`.ne-app …`), so the cab's own defaults (its button reset,
+   its text field's ring) never come through. */
+
+.ne-app {
+  /* NetEase's colours. */
+  --ne-base: #16161a;
+  --ne-raised: #232329;
+  --ne-highlight: #2c2c34;
+  --ne-tinted: rgb(255 255 255 / 0.09);
+  --ne-pressed: rgb(255 255 255 / 0.16);
+  --ne-text: #f4f4f6;
+  --ne-dim: #a8a8b3;
+  --ne-faint: rgb(255 255 255 / 0.4);
+  /* Secondary words over a cover's colour (a page's top, the bar, Now Playing). */
+  --ne-on-colour: rgb(255 255 255 / 0.72);
+  --ne-rule: rgb(255 255 255 / 0.1);
+  --ne-track: rgb(255 255 255 / 0.22);
+  /* The words on Now Playing: the line sung lit, the ones sung before it dimmer, the ones to come palest. Over
+     the cover's own wash (dark in either appearance) they're white, with the opacity telling them apart. */
+  --ne-lyric: rgb(255 255 255 / 0.42);
+  --ne-lyric-sung: rgb(255 255 255 / 0.6);
+  --ne-lyric-now: #fff;
+  --ne-lyric-dim: rgb(255 255 255 / 0.36);
+  --ne-lyric-now-dim: rgb(255 255 255 / 0.72);
+  /* The words' own ground, under the wash: the wash is a colour, and the words need a little depth on it. */
+  --ne-lyrics-ground: rgb(0 0 0 / 0.2);
+  /* NetEase's red: what's playing, the big play, the current tab. */
+  --ne-red: #ec4141;
+  --ne-red-deep: #c62f2f;
+
+  /* Corners: small covers (in rows), covers and cards, what floats (the bar), the QR's card. */
+  --ne-corner-small: 6px;
+  --ne-corner: 10px;
+  --ne-corner-card: 14px;
+  --ne-corner-float: 16px;
+
+  /* Heights: the top bar's buttons and field, the smaller pills', the big play's. */
+  --ne-height: 56px;
+  --ne-height-small: 44px;
+  --ne-play: 76px;
+  /* The top bar's height: its padding and the 56 px of its buttons. */
+  --ne-top-height: calc(18px + var(--ne-height) + 14px);
+  /* The page's sides, and the inset of what floats at its foot. */
+  --ne-gutter: 26px;
+  --ne-inset: 14px;
+
+  --ne-shadow: 0 6px 20px rgb(0 0 0 / 0.45);
+  --ne-shadow-large: 0 14px 44px rgb(0 0 0 / 0.5);
+  /* Under what floats at the foot: the page fades out beneath it. */
+  --ne-shadow-foot: 0 -14px 30px rgb(22 22 26 / 0.9);
+
+  --ne-ease: cubic-bezier(0.3, 0, 0, 1);
+  --ne-quick: 0.2s;
+  --ne-move: 0.42s;
+
+  font-family: 'Figtree Variable', 'Instrument Sans Variable', 'Inter Variable', sans-serif;
+  border-radius: var(--panel-radius);
+  background: var(--ne-base);
+  color: var(--ne-text);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  container-type: size;
+}
+
+/* The cab's light appearance: NetEase's app drawn light, its red kept (a little deeper, to read on white). */
+.shell.appearance-light .ne-app {
+  --ne-base: #f6f6f8;
+  --ne-raised: #fff;
+  --ne-highlight: #ececf0;
+  --ne-tinted: rgb(0 0 0 / 0.06);
+  --ne-pressed: rgb(0 0 0 / 0.1);
+  --ne-text: #17171c;
+  --ne-dim: #6c6c78;
+  --ne-faint: rgb(0 0 0 / 0.4);
+  --ne-on-colour: rgb(255 255 255 / 0.78);
+  --ne-rule: rgb(0 0 0 / 0.08);
+  --ne-track: rgb(0 0 0 / 0.16);
+  --ne-red: #e03535;
+  --ne-red-deep: #b92a2a;
+  --ne-shadow: 0 6px 18px rgb(0 0 0 / 0.12);
+  --ne-shadow-large: 0 14px 40px rgb(0 0 0 / 0.16);
+  --ne-shadow-foot: 0 -14px 30px rgb(246 246 248 / 0.92);
+  /* Now Playing keeps its own dark wash of the cover's colour in the light appearance too (as NetEase's app
+     does on a phone): white words over it read in both, and the sheet is a picture, not a page. */
+  --ne-lyric: rgb(255 255 255 / 0.5);
+  --ne-lyric-sung: rgb(255 255 255 / 0.72);
+  --ne-lyric-now: #fff;
+  --ne-lyric-dim: rgb(255 255 255 / 0.44);
+  --ne-lyric-now-dim: rgb(255 255 255 / 0.78);
+  --ne-lyrics-ground: rgb(0 0 0 / 0.26);
+}
+
+/* Type: titles, sections, headings, then body (names in lists), labels (cards, tabs, buttons), small (what's under
+   a name), captions; at the player's text size, but in the top bar, whose tabs and field keep theirs as a phone's
+   bars do (its own `--text-scale`, so the type is worked out again there). */
+.ne-app,
+.ne-app .ne-top {
+  --ne-type-title: calc(34px * var(--text-scale, 1));
+  --ne-type-section: calc(28px * var(--text-scale, 1));
+  --ne-type-heading: calc(24px * var(--text-scale, 1));
+  --ne-type-body: calc(21px * var(--text-scale, 1));
+  --ne-type-label: calc(19px * var(--text-scale, 1));
+  --ne-type-small: calc(17px * var(--text-scale, 1));
+  --ne-type-caption: calc(14px * var(--text-scale, 1));
+}
+
+.ne-app button {
+  color: inherit;
+}
+
+/* What lists and cards cut short: one line, an ellipsis. */
+.ne-app
+  :is(
+    .ne-card-name,
+    .ne-track-name,
+    .ne-track-sub,
+    .ne-mini-name,
+    .ne-mini-artists,
+    .ne-now-artists,
+    .ne-now-from b,
+    .ne-queue-name,
+    .ne-queue-artists
+  ) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Pressed: everything round or pill-shaped gives a little. */
+.ne-app :is(.ne-round, .ne-pill, .ne-play, .ne-control, .ne-tab, .ne-card, .ne-track):active {
+  scale: 0.97;
+}
+
+.ne-app :is(.ne-round, .ne-pill, .ne-play, .ne-control, .ne-tab) {
+  transition:
+    color var(--ne-quick),
+    background-color var(--ne-quick),
+    scale var(--ne-quick) var(--ne-ease);
+}
+
+/* --- Pills and icon buttons ------------------------------------------------------------------------------- */
+
+.ne-app .ne-pill {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  height: var(--ne-height);
+  padding-inline: 28px;
+  border-radius: calc(var(--ne-height) / 2);
+  background: var(--ne-red);
+  color: #fff;
+  font-size: var(--ne-type-label);
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.ne-app .ne-pill svg {
+  width: 26px;
+  height: 26px;
+}
+
+.ne-app .ne-pill.outline {
+  background: none;
+  color: var(--ne-text);
+  box-shadow: inset 0 0 0 1.5px var(--ne-rule);
+}
+
+.ne-app .ne-pill.quiet {
+  background: var(--ne-tinted);
+  color: var(--ne-text);
+}
+
+.ne-app .ne-icon {
+  flex: none;
+  position: relative;
+  width: 54px;
+  height: 54px;
+  display: grid;
+  place-items: center;
+  color: var(--ne-dim);
+  border-radius: 50%;
+  transition: color var(--ne-quick);
+}
+
+.ne-app .ne-icon svg {
+  width: 34px;
+  height: 34px;
+}
+
+.ne-app .ne-icon.on {
+  color: var(--ne-red);
+}
+
+.ne-app .ne-toggle.on::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  bottom: 3px;
+  width: 5px;
+  height: 5px;
+  translate: -50% 0;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+/* --- The top bar: the brand or Back, the tabs, the search field ------------------------------------------- */
+
+.ne-app .ne-top {
+  --text-scale: 1;
+  position: relative;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 18px var(--ne-gutter) 14px;
+}
+
+.ne-app .ne-brand {
+  flex: none;
+  width: var(--ne-height);
+  height: var(--ne-height);
+  display: grid;
+  place-items: center;
+  color: var(--ne-red);
+}
+
+.ne-app .ne-brand svg {
+  width: 38px;
+  height: 38px;
+}
+
+.ne-app .ne-round {
+  flex: none;
+  width: var(--ne-height);
+  height: var(--ne-height);
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--ne-raised);
+  color: var(--ne-text);
+}
+
+.ne-app .ne-round svg {
+  width: 28px;
+  height: 28px;
+}
+
+/* The tabs: a glyph over its word, NetEase's red while chosen. */
+.ne-app .ne-tabs {
+  flex: none;
+  display: flex;
+  gap: 4px;
+  transition: opacity var(--ne-quick);
+}
+
+.ne-app .ne-tabs.away {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.ne-app .ne-tab {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  min-width: 82px;
+  padding: 5px 10px;
+  border-radius: var(--ne-corner);
+  color: var(--ne-dim);
+  font-size: var(--ne-type-caption);
+  font-weight: 600;
+}
+
+.ne-app .ne-tab svg {
+  width: 28px;
+  height: 28px;
+}
+
+.ne-app .ne-tab.on {
+  color: var(--ne-red);
+}
+
+/* The search field: NetEase's own rounded field, grey until it's typed into (then white-ringed). */
+.ne-app .ne-search {
+  flex: 1;
+  min-width: 0;
+  height: var(--ne-height);
+  border-radius: calc(var(--ne-height) / 2);
+  background: var(--ne-raised);
+  display: flex;
+  align-items: center;
+  transition:
+    background-color var(--ne-quick),
+    box-shadow var(--ne-quick);
+}
+
+.ne-app .ne-search.typing {
+  background: var(--ne-highlight);
+  box-shadow: inset 0 0 0 2px var(--ne-red);
+}
+
+.ne-app .text-field {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  border-radius: 0;
+  gap: 12px;
+  padding-inline: 20px 8px;
+  font-size: var(--ne-type-body);
+  font-weight: 500;
+  color: var(--ne-text);
+  background: none;
+  transition: none;
+}
+
+.ne-app .text-field.typing {
+  box-shadow: none;
+}
+
+.ne-app .text-field > svg {
+  width: 28px;
+  height: 28px;
+  color: var(--ne-dim);
+}
+
+.ne-app .ne-search.typing .text-field > svg {
+  color: var(--ne-red);
+}
+
+.ne-app .text-field-hint {
+  color: var(--ne-dim);
+}
+
+.ne-app .text-field-caret {
+  width: 2.5px;
+  height: 26px;
+  background: var(--ne-text);
+}
+
+.ne-app .text-field .text-field-clear {
+  width: 42px;
+  height: 42px;
+  background: none;
+  color: var(--ne-dim);
+}
+
+.ne-app .text-field-clear svg {
+  width: 62%;
+  height: 62%;
+}
+
+/* --- The pages -------------------------------------------------------------------------------------------- */
+
+.ne-app .ne-body {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+}
+
+/* A page shown again fades up where it was; one just opened comes in from the side, forward. */
+.ne-app .ne-layer {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  animation: ne-fade-in var(--ne-quick) ease-out;
+}
+
+.ne-app .ne-layer.fresh {
+  animation: ne-page-in var(--ne-move) var(--ne-ease);
+}
+
+/* Kept as it is (its scroll and all), but not laid out or drawn while away: every tab is kept at once. */
+.ne-app .ne-layer.away {
+  visibility: hidden;
+  content-visibility: hidden;
+  animation: none;
+}
+
+@keyframes ne-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes ne-page-in {
+  from {
+    opacity: 0;
+    translate: 30px 0;
+  }
+}
+
+@keyframes ne-pop-in {
+  from {
+    opacity: 0;
+    scale: 0.92;
+  }
+}
+
+/* What scrolls (dragged, or the wheel): room left at its foot for the bar. */
+.ne-app .ne-scroll {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: none;
+  padding: 10px var(--ne-gutter) 128px;
+  display: flex;
+  flex-direction: column;
+  gap: 26px;
+}
+
+.ne-app .ne-page-title {
+  margin: 8px 0 0;
+  font-size: var(--ne-type-title);
+  font-weight: 800;
+  letter-spacing: -0.01em;
+}
+
+.ne-app .ne-page-note {
+  margin: -18px 0 0;
+  font-size: var(--ne-type-small);
+  font-weight: 500;
+  color: var(--ne-dim);
+}
+
+/* A shelf: its title, and its cards, five across and the sixth peeking. */
+.ne-app .ne-section {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.ne-app .ne-section-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.ne-app .ne-section-head h3 {
+  margin: 0;
+  font-size: var(--ne-type-section);
+  font-weight: 800;
+  letter-spacing: -0.01em;
+}
+
+.ne-app .ne-section-head h3 small {
+  margin-inline-start: 8px;
+  font-size: var(--ne-type-small);
+  font-weight: 600;
+  color: var(--ne-dim);
+}
+
+.ne-app .ne-show-all {
+  font-size: var(--ne-type-small);
+  font-weight: 600;
+  color: var(--ne-dim);
+}
+
+.ne-app .ne-shelf {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: calc((100% - 4 * 18px) / 5.3);
+  gap: 18px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  margin-inline: calc(-1 * var(--ne-gutter));
+  padding-inline: var(--ne-gutter);
+  scroll-padding-inline: var(--ne-gutter);
+}
+
+.ne-app .ne-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 24px 18px;
+}
+
+.ne-app .ne-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  text-align: left;
+  transition: scale var(--ne-quick) var(--ne-ease);
+}
+
+.ne-app .ne-card .ne-cover {
+  width: 100%;
+  margin-bottom: 6px;
+  box-shadow: var(--ne-shadow);
+}
+
+.ne-app .ne-card-label {
+  font-size: var(--ne-type-caption);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ne-red);
+}
+
+.ne-app .ne-card-name {
+  font-size: var(--ne-type-label);
+  font-weight: 700;
+}
+
+.ne-app .ne-card-sub {
+  font-size: var(--ne-type-small);
+  font-weight: 500;
+  color: var(--ne-dim);
+}
+
+/* --- Covers ---------------------------------------------------------------------------------------------- */
+
+.ne-app .ne-cover-wrap {
+  position: relative;
+  display: block;
+  flex: none;
+}
+
+.ne-app .ne-cover {
+  position: relative;
+  display: block;
+  aspect-ratio: 1;
+  flex: none;
+  border-radius: var(--ne-corner);
+  overflow: hidden;
+  background: var(--ne-raised);
+}
+
+.ne-app .ne-cover.round {
+  border-radius: 50%;
+}
+
+.ne-app .ne-cover img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+/* A cover the service has none for (or one still coming): its name on the colour its name picks. The inset is
+   a length, not a share: a percentage padding would resolve against the flex row's own width and swell the
+   cover (a bar's 60 px cover became as wide as its row). */
+.ne-app .ne-cover.drawn {
+  display: grid;
+  place-items: center;
+  padding: 7px;
+  background: var(--cover, var(--ne-raised));
+}
+
+.ne-app .ne-cover.drawn b {
+  font-size: var(--ne-type-small);
+  font-weight: 700;
+  line-height: 1.2;
+  text-align: center;
+  color: rgb(255 255 255 / 0.92);
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+}
+
+/* A song the service won't give here: its cover marked, as NetEase marks one it has no right to. */
+.ne-app .ne-cover-wrap.no-right .ne-cover {
+  opacity: 0.45;
+}
+
+.ne-app .ne-no-right-mark {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: #fff;
+}
+
+.ne-app .ne-no-right-mark svg {
+  width: 46%;
+  height: 46%;
+  filter: var(--shadow-icon);
+}
+
+/* --- Songs in lists --------------------------------------------------------------------------------------- */
+
+.ne-app .ne-tracks {
+  display: flex;
+  flex-direction: column;
+}
+
+.ne-app .ne-track {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: var(--ne-corner);
+  text-align: left;
+  transition: background-color var(--ne-quick);
+}
+
+.ne-app .ne-track:active {
+  background: var(--ne-tinted);
+}
+
+.ne-app .ne-track.current {
+  background: var(--ne-tinted);
+}
+
+.ne-app .ne-track-number {
+  flex: none;
+  width: 34px;
+  display: grid;
+  place-items: center;
+  font-size: var(--ne-type-body);
+  font-weight: 600;
+  color: var(--ne-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.ne-app .ne-track.current .ne-track-number {
+  color: var(--ne-red);
+}
+
+.ne-app .ne-track-cover {
+  width: 54px;
+  border-radius: var(--ne-corner-small);
+}
+
+.ne-app .ne-track-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.ne-app .ne-track-name {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: var(--ne-type-body);
+  font-weight: 600;
+}
+
+.ne-app .ne-track.current .ne-track-name {
+  color: var(--ne-red);
+}
+
+.ne-app .ne-track-sub {
+  font-size: var(--ne-type-small);
+  font-weight: 500;
+  color: var(--ne-dim);
+}
+
+.ne-app .ne-track-album {
+  color: var(--ne-faint);
+}
+
+.ne-app .ne-track-time {
+  flex: none;
+  font-size: var(--ne-type-small);
+  font-weight: 500;
+  color: var(--ne-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+/* The song can't play here: said beside its name, plainly. */
+.ne-app .ne-track-flag {
+  flex: none;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: var(--ne-tinted);
+  font-size: var(--ne-type-caption);
+  font-weight: 600;
+  color: var(--ne-dim);
+}
+
+/* NetEase's playing bars: three red bars, rising and falling out of step while it plays. */
+.ne-app .ne-eq {
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 3px;
+  width: 20px;
+  height: 18px;
+}
+
+.ne-app .ne-eq i {
+  flex: 1;
+  height: 30%;
+  border-radius: 1px;
+  background: var(--ne-red);
+}
+
+.ne-app .ne-eq i:nth-child(2) {
+  height: 72%;
+}
+
+.ne-app .ne-eq i:nth-child(3) {
+  height: 46%;
+}
+
+.ne-app .ne-eq.playing i {
+  animation: ne-eq 0.9s ease-in-out infinite alternate;
+}
+
+.ne-app .ne-eq.playing i:nth-child(2) {
+  animation-duration: 0.7s;
+  animation-delay: -0.3s;
+}
+
+.ne-app .ne-eq.playing i:nth-child(3) {
+  animation-duration: 1.1s;
+  animation-delay: -0.6s;
+}
+
+@keyframes ne-eq {
+  from {
+    height: 14%;
+  }
+  to {
+    height: 100%;
+  }
+}
+
+/* --- 推荐 -------------------------------------------------------------------------------------------------- */
+
+/* The day's songs, in NetEase's own card: the date, the words, and its play. */
+.ne-app .ne-home.with-side {
+  display: grid;
+  grid-template-columns: minmax(0, 27%) minmax(0, 1fr);
+  gap: 26px;
+  align-items: start;
+}
+
+.ne-app .ne-home-main {
+  display: flex;
+  flex-direction: column;
+  gap: 26px;
+  min-width: 0;
+}
+
+/* The account's playlists down the left: it scrolls on its own, so the day's songs beside it scroll by
+   themselves too. Signed out there is no column (the page draws none), and the page is the plain one again. */
+.ne-app .ne-home-side {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  min-width: 0;
+  position: sticky;
+  top: 0;
+  max-height: 100%;
+  overflow-y: auto;
+  scrollbar-width: none;
+}
+
+.ne-app .ne-home-side::-webkit-scrollbar {
+  display: none;
+}
+
+.ne-app .ne-side-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.ne-app .ne-side-title {
+  margin: 0 0 2px;
+  font-size: var(--ne-type-label);
+  font-weight: 800;
+  color: var(--ne-dim);
+  letter-spacing: 0.02em;
+}
+
+.ne-app .ne-side-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+/* A playlist in the column: its cover, its name, how many songs. The one playing keeps NetEase's red. */
+.ne-app .ne-side-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-width: 0;
+  padding: 6px;
+  border-radius: var(--ne-corner);
+  text-align: left;
+  transition: background var(--ne-quick) var(--ne-ease);
+}
+
+.ne-app .ne-side-row:hover,
+.ne-app .ne-side-row:focus-visible {
+  background: var(--ne-tinted);
+}
+
+.ne-app .ne-side-cover {
+  flex: none;
+  width: 46px;
+  height: 46px;
+  border-radius: var(--ne-corner-small);
+}
+
+.ne-app .ne-side-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+/* Two lines at most: a long playlist's name ends in an ellipsis rather than pushing the column wider. */
+.ne-app .ne-side-name {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  font-size: var(--ne-type-small);
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+.ne-app .ne-side-sub {
+  font-size: var(--ne-type-caption);
+  font-weight: 500;
+  color: var(--ne-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ne-app .ne-side-row.playing .ne-side-name,
+.ne-app .ne-side-row.playing .ne-side-sub {
+  color: var(--ne-red);
+}
+
+.ne-app .ne-side-heart {
+  flex: none;
+  color: var(--ne-red);
+  display: grid;
+  place-items: center;
+}
+
+.ne-app .ne-side-heart svg {
+  width: 18px;
+  height: 18px;
+}
+
+.ne-app .ne-daily {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ne-app .ne-daily-head {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 18px 20px;
+  border-radius: var(--ne-corner-card);
+  background: linear-gradient(100deg, var(--ne-red-deep), var(--ne-red));
+  color: #fff;
+  box-shadow: var(--ne-shadow);
+}
+
+.ne-app .ne-daily-date {
+  flex: none;
+  width: 64px;
+  height: 64px;
+  border-radius: var(--ne-corner);
+  display: grid;
+  place-items: center;
+  background: rgb(255 255 255 / 0.18);
+}
+
+.ne-app .ne-daily-date b {
+  font-size: calc(32px * var(--text-scale, 1));
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+.ne-app .ne-daily-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.ne-app .ne-daily-text h2 {
+  margin: 0;
+  font-size: var(--ne-type-section);
+  font-weight: 800;
+}
+
+.ne-app .ne-daily-text p {
+  margin: 4px 0 0;
+  font-size: var(--ne-type-small);
+  font-weight: 500;
+  color: rgb(255 255 255 / 0.78);
+}
+
+.ne-app .ne-daily-head .ne-play {
+  width: 62px;
+  height: 62px;
+  background: #fff;
+  color: var(--ne-red);
+}
+
+.ne-app .ne-daily-head .ne-play svg {
+  width: 30px;
+  height: 30px;
+}
+
+/* --- A page's header -------------------------------------------------------------------------------------- */
+
+.ne-app .ne-page {
+  padding-top: 0;
+  gap: 0;
+  background: linear-gradient(to bottom, var(--ne-raised), var(--ne-base) 420px) no-repeat;
+  background-attachment: local;
+}
+
+.ne-app .ne-header {
+  display: flex;
+  align-items: flex-end;
+  gap: 26px;
+  padding: 22px 0 20px;
+}
+
+.ne-app .ne-header-cover {
+  width: 190px;
+  border-radius: var(--ne-corner-card);
+  box-shadow: var(--ne-shadow-large);
+}
+
+.ne-app .ne-header.artist .ne-header-cover {
+  width: 170px;
+}
+
+.ne-app .ne-header-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.ne-app .ne-header-kind {
+  font-size: var(--ne-type-small);
+  font-weight: 600;
+  color: var(--ne-dim);
+}
+
+/* The name as large as it lets itself be: a short one huge, a long one smaller. */
+.ne-app .ne-header-name {
+  margin: 0;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  line-height: 1.05;
+  text-wrap: balance;
+  overflow-wrap: anywhere;
+}
+
+.ne-app .ne-header-name.huge {
+  font-size: calc(76px * var(--text-scale, 1));
+}
+
+.ne-app .ne-header-name.large {
+  font-size: calc(54px * var(--text-scale, 1));
+}
+
+.ne-app .ne-header-name.long {
+  font-size: calc(40px * var(--text-scale, 1));
+}
+
+.ne-app .ne-header-description,
+.ne-app .ne-header-meta {
+  margin: 0;
+  font-size: var(--ne-type-small);
+  font-weight: 500;
+  color: var(--ne-dim);
+}
+
+.ne-app .ne-header-description {
+  margin-top: 3px;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+
+.ne-app .ne-header-meta {
+  display: flex;
+  flex-wrap: wrap;
+}
+
+.ne-app .ne-header-meta span + span::before {
+  content: '•';
+  margin-inline: 8px;
+  color: var(--ne-faint);
+}
+
+.ne-app .ne-owner {
+  font-weight: 700;
+  color: var(--ne-text);
+}
+
+/* Play, big and red; Shuffle beside it. */
+.ne-app .ne-actions {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  padding-block: 6px 16px;
+}
+
+.ne-app .ne-play {
+  flex: none;
+  width: var(--ne-play);
+  height: var(--ne-play);
+  border-radius: 50%;
+  background: var(--ne-red);
+  color: #fff;
+  display: grid;
+  place-items: center;
+  box-shadow: var(--ne-shadow);
+}
+
+.ne-app .ne-play svg {
+  width: 34px;
+  height: 34px;
+}
+
+/* --- What floats at the foot: the bar, the toast, the unsung note ----------------------------------------- */
+
+.ne-app .ne-mini {
+  position: absolute;
+  z-index: 3;
+  left: var(--ne-inset);
+  right: var(--ne-inset);
+  bottom: var(--ne-inset);
+  min-height: 86px;
+  margin: 0;
+  padding: 0 10px 0 14px;
+  gap: 16px;
+  border-radius: var(--ne-corner-float);
+  display: flex;
+  align-items: center;
+  background: var(--ne-raised);
+  box-shadow: var(--ne-shadow-foot);
+  cursor: pointer;
+  transition:
+    translate var(--ne-move) var(--ne-ease),
+    opacity var(--ne-quick);
+}
+
+/* With the bar there, what scrolls under it doesn't show in the strip below it. */
+.ne-app:has(.ne-mini:not(.away)) .ne-scroll {
+  mask-image: linear-gradient(to top, transparent var(--ne-inset), #000 var(--ne-inset));
+}
+
+/* Aside (Now Playing open, or the keyboard up): down out of the way. */
+.ne-app .ne-mini.away {
+  translate: 0 30px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.ne-app .ne-mini-cover {
+  width: 60px;
+  border-radius: var(--ne-corner-small);
+}
+
+.ne-app .ne-mini-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.ne-app .ne-mini-name {
+  font-size: var(--ne-type-body);
+  font-weight: 700;
+}
+
+.ne-app .ne-mini-artists {
+  font-size: var(--ne-type-small);
+  font-weight: 500;
+  color: var(--ne-dim);
+}
+
+.ne-app .ne-mini-play {
+  flex: none;
+  width: 62px;
+  height: 62px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  color: var(--ne-text);
+}
+
+.ne-app .ne-mini-play svg {
+  width: 32px;
+  height: 32px;
+}
+
+/* Its time: a thin line along the foot. */
+.ne-app .ne-mini-time {
+  position: absolute;
+  left: 14px;
+  right: 14px;
+  bottom: 0;
+  height: 3px;
+  border-radius: 2px;
+  background: linear-gradient(to right, var(--ne-red) calc(var(--share) * 100%), var(--ne-track) 0);
+}
+
+/* A song the service won't give: said in the time bar's place. */
+.ne-app .ne-unsung {
+  margin: 0;
+  padding: 14px 16px;
+  border-radius: var(--ne-corner);
+  background: var(--ne-tinted);
+  font-size: var(--ne-type-label);
+  font-weight: 600;
+  color: var(--ne-dim);
+}
+
+/* 无版权，无法播放: a moment over the bar, as the app passes the song over. */
+.ne-app .ne-toast {
+  position: absolute;
+  z-index: 4;
+  left: 50%;
+  bottom: 118px;
+  translate: -50% 0;
+  margin: 0;
+  padding: 14px 26px;
+  border-radius: var(--ne-corner-card);
+  background: var(--ne-text);
+  color: var(--ne-base);
+  font-size: var(--ne-type-label);
+  font-weight: 600;
+  white-space: nowrap;
+  box-shadow: var(--ne-shadow);
+  animation: ne-toast 3.6s var(--ne-ease) both;
+}
+
+@keyframes ne-toast {
+  from {
+    opacity: 0;
+    translate: -50% 16px;
+  }
+  8%,
+  86% {
+    opacity: 1;
+    translate: -50% 0;
+  }
+  to {
+    opacity: 0;
+    translate: -50% 0;
+  }
+}
+
+/* --- Now Playing ------------------------------------------------------------------------------------------ */
+
+/* Rises from the bar over the whole app, washed in the song's own colour. */
+.ne-app .ne-now {
+  position: absolute;
+  z-index: 5;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 18px var(--ne-gutter) 26px;
+  background: linear-gradient(to bottom, var(--song, var(--ne-raised)), var(--ne-base) 92%);
+  translate: 0 100%;
+  visibility: hidden;
+  transition:
+    translate var(--ne-move) var(--ne-ease),
+    visibility 0s var(--ne-move);
+}
+
+.ne-app .ne-now.open {
+  translate: 0 0;
+  visibility: visible;
+  transition:
+    translate var(--ne-move) var(--ne-ease),
+    visibility 0s;
+}
+
+/* Closing at the left, the words and the queue at the right, what it plays from between them. */
+.ne-app .ne-now-head {
+  display: grid;
+  grid-template-columns: 1fr minmax(0, auto) 1fr;
+  align-items: center;
+  gap: 16px;
+}
+
+.ne-app .ne-now-head > .ne-icon {
+  justify-self: start;
+  color: var(--ne-text);
+}
+
+.ne-app .ne-now-tools {
+  justify-self: end;
+  display: flex;
+  gap: 6px;
+}
+
+.ne-app .ne-now-tools .ne-icon {
+  color: var(--ne-text);
+}
+
+.ne-app .ne-now-tools .ne-icon.on {
+  color: #fff;
+  background: rgb(255 255 255 / 0.16);
+}
+
+/* 收藏: the heart on the song playing. Lit, it keeps NetEase's red; pressed, it dims until the layer answers
+   (a second press must not send the same song twice). Signed out it's there but inert, and says why. */
+.ne-app .ne-like {
+  color: var(--ne-text);
+}
+
+.ne-app .ne-like.on {
+  color: var(--ne-red);
+  background: rgb(231 45 44 / 0.16);
+}
+
+.ne-app .ne-like.working {
+  opacity: 0.55;
+}
+
+.ne-app .ne-like:disabled:not(.working) {
+  opacity: 0.4;
+}
+
+.ne-app .ne-like svg {
+  width: 24px;
+  height: 24px;
+}
+
+.ne-app .ne-now-from {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+.ne-app .ne-now-from span {
+  font-size: var(--ne-type-caption);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ne-on-colour);
+}
+
+.ne-app .ne-now-from b {
+  max-width: 100%;
+  font-size: var(--ne-type-label);
+  font-weight: 700;
+}
+
+.ne-app .ne-now-body {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 48px;
+  padding-top: 14px;
+}
+
+.ne-app .ne-now-art {
+  height: 100%;
+  aspect-ratio: 1;
+  max-height: 450px;
+  display: grid;
+}
+
+.ne-app .ne-now-cover {
+  width: 100%;
+  border-radius: var(--ne-corner-card);
+  box-shadow: var(--ne-shadow-large);
+  animation: ne-cover-in var(--ne-move) var(--ne-ease) both;
+}
+
+@keyframes ne-cover-in {
+  from {
+    opacity: 0;
+    scale: 0.92;
+  }
+}
+
+.ne-app .ne-now-side {
+  display: flex;
+  flex-direction: column;
+  gap: 26px;
+  min-width: 0;
+}
+
+.ne-app .ne-now-names {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+
+.ne-app .ne-now-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* The song's name: Now Playing's one big thing. */
+.ne-app .ne-now-name {
+  font-size: calc(40px * var(--text-scale, 1));
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  line-height: 1.08;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  animation: ne-name-in 0.35s var(--ne-ease);
+}
+
+@keyframes ne-name-in {
+  from {
+    opacity: 0;
+    translate: 0 8px;
+  }
+}
+
+.ne-app .ne-now-artists {
+  font-size: var(--ne-type-heading);
+  font-weight: 500;
+  color: var(--ne-on-colour);
+}
+
+.ne-app .ne-now-artists button {
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  text-decoration-color: rgb(255 255 255 / 0.35);
+}
+
+.ne-app .ne-now-album {
+  align-self: flex-start;
+  font-size: var(--ne-type-small);
+  font-weight: 500;
+  color: var(--ne-on-colour);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  text-decoration-color: rgb(255 255 255 / 0.28);
+}
+
+/* The time: a red bar on a pale track, its knob; the times under it. */
+.ne-app .ne-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.ne-app .ne-bar {
+  position: relative;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  touch-action: none;
+}
+
+.ne-app .ne-bar::before,
+.ne-app .ne-bar-fill {
+  content: '';
+  position: absolute;
+  left: 0;
+  height: 6px;
+  border-radius: 3px;
+}
+
+.ne-app .ne-bar::before {
+  right: 0;
+  background: var(--ne-track);
+}
+
+.ne-app .ne-bar-fill {
+  width: calc(var(--share) * 100%);
+  background: var(--ne-red);
+}
+
+.ne-app .ne-bar-knob {
+  position: absolute;
+  left: calc(var(--share) * 100%);
+  width: 20px;
+  height: 20px;
+  translate: -50% 0;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 2px 6px rgb(0 0 0 / 0.35);
+  transition: scale var(--ne-quick);
+}
+
+.ne-app .ne-bar.dragging .ne-bar-knob {
+  scale: 1.3;
+}
+
+.ne-app .ne-times {
+  display: flex;
+  justify-content: space-between;
+  font-size: var(--ne-type-small);
+  font-weight: 500;
+  color: var(--ne-on-colour);
+  font-variant-numeric: tabular-nums;
+}
+
+.ne-app .ne-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.ne-app .ne-control {
+  flex: none;
+  position: relative;
+  width: 62px;
+  height: 62px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  color: var(--ne-text);
+}
+
+.ne-app .ne-control svg {
+  width: 34px;
+  height: 34px;
+}
+
+.ne-app .ne-control.big svg {
+  width: 44px;
+  height: 44px;
+}
+
+.ne-app .ne-control.on {
+  color: var(--ne-red);
+}
+
+.ne-app .ne-control.on::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  bottom: 4px;
+  width: 5px;
+  height: 5px;
+  translate: -50% 0;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.ne-app .ne-control.ne-now-play {
+  width: 96px;
+  height: 96px;
+  background: #fff;
+  color: #c62f2f;
+}
+
+.ne-app .ne-now-play svg {
+  width: 42px;
+  height: 42px;
+}
+
+/* The volume, under the controls: the speaker, and a bar as the time's. */
+.ne-app .ne-volume {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: -12px;
+}
+
+.ne-app .ne-volume .ne-icon {
+  color: var(--ne-on-colour);
+}
+
+.ne-app .ne-volume .ne-bar {
+  flex: 1;
+}
+
+/* A small screen's Now Playing (a coach's, the Scania 7"'s): the cover no wider than 36% and no taller than the
+   room, the rest smaller and closer, so the song, the time, the controls and the volume all fit beside it. */
+.ne-app .ne-now {
+  container: ne-now / size;
+}
+
+@container ne-now (max-height: 520px) {
+  .ne-app .ne-now-body {
+    grid-template-columns: min(36cqw, calc(100cqh - 124px)) minmax(0, 1fr);
+    gap: 26px;
+    padding-top: 8px;
+  }
+
+  .ne-app .ne-now-art {
+    width: 100%;
+    height: auto;
+    max-height: none;
+  }
+
+  .ne-app .ne-now-side {
+    gap: 10px;
+  }
+
+  .ne-app .ne-now-name {
+    font-size: calc(26px * var(--text-scale, 1));
+  }
+
+  .ne-app .ne-now-artists {
+    font-size: var(--ne-type-label);
+  }
+
+  .ne-app .ne-control {
+    width: 46px;
+    height: 46px;
+  }
+
+  .ne-app .ne-control svg,
+  .ne-app .ne-control.big svg {
+    width: 26px;
+    height: 26px;
+  }
+
+  .ne-app .ne-control.ne-now-play {
+    width: 62px;
+    height: 62px;
+  }
+
+  .ne-app .ne-now-play svg {
+    width: 28px;
+    height: 28px;
+  }
+
+  .ne-app .ne-volume {
+    margin-top: 0;
+  }
+}
+
+/* --- The words -------------------------------------------------------------------------------------------- */
+
+.ne-app .ne-lyrics-card {
+  height: 100%;
+  min-height: 0;
+  display: grid;
+  place-items: center;
+  border-radius: var(--ne-corner-card);
+  background: var(--ne-lyrics-ground);
+  padding: 24px;
+  text-align: center;
+}
+
+.ne-app .ne-lyrics-card.note p {
+  margin: 0;
+  font-size: var(--ne-type-label);
+  font-weight: 600;
+  color: var(--ne-on-colour);
+}
+
+/* The words in the cover's place: a column that scrolls, its lines lit as they're sung.
+
+   The column's blank head and foot are each half the card's height (`50%`): the scroller keeps the line being
+   sung in the middle, so the first line must be able to rise to the middle and the last to fall to it, and half
+   the card on either side is exactly the room that takes. (A third was not enough: a line near the top or bottom
+   stopped short of the middle, so the sung line did not read as centred — the owner's 2026-11-20 report.)
+
+   The card itself is the cover's colour: `--song` is what Now Playing washes the whole sheet in (read from the
+   album cover, `look.ts`), and the words' card shows that colour plainly rather than dulling it behind a black
+   veil — the cover's colour is the background, and it changes with the album (the owner's 2026-11-20 ask). The
+   wash is made dark enough for white words already (`washFrom`), so nothing more needs to sit over it. */
+.ne-app .ne-lyrics {
+  position: relative;
+  height: 100%;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: none;
+  border-radius: var(--ne-corner-card);
+  background: var(--song, var(--ne-raised));
+  padding: 50% 22px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  mask-image: linear-gradient(to bottom, transparent, #000 4%, #000 96%, transparent);
+}
+
+/* Now Playing with the words: the words are the cover's place, as they were before the wide-screen change. */
+.ne-app .ne-lyric {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  padding: 7px 10px;
+  border-radius: var(--ne-corner-small);
+  text-align: center;
+  /* A step below the page's body type: the words are many and in a row, so a slightly smaller size reads better
+     than the list type (the owner's 2026-11-20 "略微缩小歌词大小"). */
+  font-size: var(--ne-type-label);
+  font-weight: 600;
+  line-height: 1.32;
+  /* The words take the app's own ink rather than a fixed white: Now Playing's wash is light in the light
+     appearance, and white words over it were invisible there (the owner's dark-mode report). */
+  color: var(--ne-lyric);
+  transition:
+    color var(--ne-quick),
+    scale var(--ne-quick) var(--ne-ease);
+}
+
+.ne-app .ne-lyric.sung {
+  color: var(--ne-lyric-sung);
+}
+
+/* The line being sung: larger, not merely tinted. From the driver's seat a 2% scale is invisible, so the size
+   step is what makes the current line findable at a glance. `scale` rather than `font-size`, so the column
+   doesn't reflow on every line change: the line grows in place and the ones around it keep their room, which is
+   what keeps the scroll from juddering. */
+.ne-app .ne-lyric.now {
+  color: var(--ne-lyric-now);
+  font-weight: 800;
+  scale: 1.2;
+}
+
+.ne-app .ne-lyric-translation {
+  font-size: var(--ne-type-small);
+  font-weight: 500;
+  color: var(--ne-lyric-dim);
+}
+
+.ne-app .ne-lyric.now .ne-lyric-translation {
+  color: var(--ne-lyric-now-dim);
+}
+
+.ne-app .ne-lyrics-note {
+  margin: 0 0 10px;
+  font-size: var(--ne-type-small);
+  font-weight: 600;
+  color: rgb(255 255 255 / 0.4);
+}
+
+/* The queue, where the cover was. */
+.ne-app .ne-queue {
+  height: 100%;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: none;
+  border-radius: var(--ne-corner-card);
+  background: rgb(0 0 0 / 0.2);
+  padding: 12px 8px;
+  animation: ne-pop-in 0.32s var(--ne-ease);
+}
+
+.ne-app .ne-queue h3 {
+  margin: 10px 12px 4px;
+  font-size: var(--ne-type-body);
+  font-weight: 800;
+}
+
+.ne-app .ne-queue-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: var(--ne-corner);
+  text-align: left;
+}
+
+.ne-app .ne-queue-row .ne-cover {
+  width: 46px;
+  border-radius: var(--ne-corner-small);
+}
+
+.ne-app .ne-queue-row.current {
+  background: rgb(255 255 255 / 0.1);
+}
+
+.ne-app .ne-queue-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.ne-app .ne-queue-name {
+  font-size: var(--ne-type-body);
+  font-weight: 600;
+}
+
+.ne-app .ne-queue-artists {
+  font-size: var(--ne-type-small);
+  font-weight: 500;
+  color: var(--ne-on-colour);
+}
+
+/* --- 我的：the account, and the QR sign-in ------------------------------------------------------------------ */
+
+.ne-app .ne-mine {
+  gap: 22px;
+}
+
+.ne-app .ne-mine-head {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  padding: 22px;
+  border-radius: var(--ne-corner-card);
+  background: var(--ne-raised);
+  box-shadow: var(--ne-shadow);
+}
+
+.ne-app .ne-avatar {
+  flex: none;
+  width: 96px;
+  height: 96px;
+  border-radius: 50%;
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+  background: var(--ne-highlight);
+  color: var(--ne-dim);
+}
+
+.ne-app .ne-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.ne-app .ne-avatar svg {
+  width: 52px;
+  height: 52px;
+}
+
+.ne-app .ne-mine-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.ne-app .ne-mine-text h2 {
+  margin: 0;
+  font-size: var(--ne-type-section);
+  font-weight: 800;
+}
+
+.ne-app .ne-mine-text p {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 6px 0 0;
+  font-size: var(--ne-type-small);
+  font-weight: 500;
+  color: var(--ne-dim);
+}
+
+.ne-app .ne-vip {
+  padding: 2px 9px;
+  border-radius: 4px;
+  background: linear-gradient(100deg, var(--ne-red-deep), var(--ne-red));
+  color: #fff;
+  font-size: var(--ne-type-caption);
+  font-weight: 700;
+}
+
+.ne-app .ne-mine-note {
+  margin: -10px 0 0;
+  font-size: var(--ne-type-small);
+  font-weight: 500;
+  color: var(--ne-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 我喜欢的音乐 on 我的: its own wide card above the shelves, red as the service draws it. */
+.ne-app .ne-loved {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  width: 100%;
+  padding: 12px 18px 12px 12px;
+  border-radius: var(--ne-corner-card);
+  background: linear-gradient(100deg, var(--ne-red-deep), var(--ne-red));
+  color: #fff;
+  text-align: left;
+  box-shadow: var(--ne-shadow);
+  transition: scale var(--ne-quick) var(--ne-ease);
+}
+
+.ne-app .ne-loved:hover,
+.ne-app .ne-loved:focus-visible {
+  scale: 1.01;
+}
+
+.ne-app .ne-loved-cover {
+  flex: none;
+  width: 76px;
+  height: 76px;
+  border-radius: var(--ne-corner);
+}
+
+.ne-app .ne-loved-text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  flex: 1;
+}
+
+.ne-app .ne-loved-name {
+  font-size: var(--ne-type-heading);
+  font-weight: 800;
+}
+
+.ne-app .ne-loved-count {
+  font-size: var(--ne-type-small);
+  font-weight: 500;
+  color: rgb(255 255 255 / 0.78);
+}
+
+.ne-app .ne-loved-mark {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  background: rgb(255 255 255 / 0.18);
+}
+
+.ne-app .ne-loved-mark svg {
+  width: 28px;
+  height: 28px;
+}
+
+/* Signed out, no code yet: the way in, as a wide card of its own. */
+.ne-app .ne-sign-in-start {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  padding: 26px;
+  border-radius: var(--ne-corner-card);
+  background: var(--ne-red);
+  color: #fff;
+  font-size: var(--ne-type-heading);
+  font-weight: 700;
+  box-shadow: var(--ne-shadow);
+}
+
+.ne-app .ne-sign-in-start svg {
+  width: 34px;
+  height: 34px;
+}
+
+/* The QR sign-in: the code on its white card, and what it says of itself beside it. */
+.ne-app .ne-sign-in {
+  display: flex;
+  align-items: center;
+  gap: 28px;
+  padding: 24px;
+  border-radius: var(--ne-corner-card);
+  background: var(--ne-raised);
+  box-shadow: var(--ne-shadow);
+  animation: ne-pop-in 0.3s var(--ne-ease);
+}
+
+.ne-app .ne-qr {
+  position: relative;
+  flex: none;
+  width: 220px;
+  height: 220px;
+  border-radius: var(--ne-corner);
+  background: #fff;
+  padding: 10px;
+  display: grid;
+  place-items: center;
+}
+
+.ne-app .ne-qr svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+  shape-rendering: crispEdges;
+}
+
+.ne-app .ne-qr-wait {
+  width: 100%;
+  height: 100%;
+  border-radius: var(--ne-corner-small);
+  background: linear-gradient(100deg, #eee, #f8f8f8, #eee);
+  animation: ne-breathe 1.4s ease-in-out infinite;
+}
+
+@keyframes ne-breathe {
+  50% {
+    opacity: 0.55;
+  }
+}
+
+/* A code gone stale: veiled, with the arrow to ask for another. */
+.ne-app .ne-qr-over {
+  position: absolute;
+  inset: 0;
+  border-radius: var(--ne-corner);
+  display: grid;
+  place-items: center;
+  background: rgb(255 255 255 / 0.9);
+  color: var(--ne-red);
+}
+
+.ne-app .ne-qr-over svg {
+  width: 56px;
+  height: 56px;
+}
+
+.ne-app .ne-sign-in-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ne-app .ne-sign-in-text h3 {
+  margin: 0;
+  font-size: var(--ne-type-heading);
+  font-weight: 800;
+}
+
+.ne-app .ne-sign-in-state {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: var(--ne-type-label);
+  font-weight: 600;
+  color: var(--ne-text);
+}
+
+.ne-app .ne-sign-in-state.done {
+  color: var(--ne-red);
+}
+
+.ne-app .ne-sign-in-state svg {
+  width: 24px;
+  height: 24px;
+}
+
+.ne-app .ne-sign-in-hint {
+  margin: 0;
+  font-size: var(--ne-type-small);
+  font-weight: 500;
+  color: var(--ne-dim);
+}
+
+.ne-app .ne-sign-in-actions {
+  display: flex;
+  gap: 12px;
+  margin-top: 6px;
+}
+
+/* --- Waiting and failures --------------------------------------------------------------------------------- */
+
+.ne-app .ne-nothing {
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: 8px;
+}
+
+.ne-app .ne-nothing h2 {
+  margin: 0;
+  font-size: var(--ne-type-section);
+  font-weight: 800;
+}
+
+.ne-app .ne-nothing p,
+.ne-app .ne-empty {
+  margin: 0;
+  font-size: var(--ne-type-label);
+  font-weight: 500;
+  color: var(--ne-dim);
+}
+
+.ne-app .ne-failed,
+.ne-app .ne-down {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  padding-block: 34px;
+  text-align: center;
+}
+
+.ne-app .ne-failed h2,
+.ne-app .ne-down h2 {
+  margin: 0;
+  font-size: var(--ne-type-section);
+  font-weight: 800;
+}
+
+.ne-app .ne-down p {
+  margin: 0;
+  font-size: var(--ne-type-label);
+  color: var(--ne-dim);
+}
+
+/* The waiting shapes: grey, breathing, in the shapes the content will take. */
+.ne-app .ne-skeleton {
+  pointer-events: none;
+}
+
+.ne-app .ne-skel,
+.ne-app .ne-skel-line {
+  background: var(--ne-tinted);
+  animation: ne-skel 1.5s ease-in-out infinite;
+}
+
+.ne-app .ne-skel {
+  display: block;
+  border-radius: var(--ne-corner);
+}
+
+.ne-app .ne-skel-line {
+  display: block;
+  height: 16px;
+  border-radius: 8px;
+}
+
+.ne-app .ne-skel-line.short {
+  width: 55%;
+}
+
+.ne-app .ne-skel-line.title {
+  width: 220px;
+  height: 26px;
+}
+
+.ne-app .ne-skel-line.big {
+  width: 70%;
+  height: 44px;
+}
+
+@keyframes ne-skel {
+  50% {
+    opacity: 0.45;
+  }
+}

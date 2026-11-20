@@ -281,6 +281,10 @@ fn resources_folder(app: &tauri::AppHandle) -> Option<PathBuf> {
 /// The QQ middle layer, kept alive by the app (its `Drop` ends it when WestPlay does).
 struct QqLayer(std::sync::Mutex<Option<westplay_host::qq_layer::Layer>>);
 
+/// NetEase Cloud Music's middle layer, kept alive by the app the same way: a local would be dropped
+/// at the end of the setup closure, ending the layer with it.
+struct NeteaseLayer(std::sync::Mutex<Option<westplay_host::netease_layer::Layer>>);
+
 fn main() {
     // Started as administrator only to copy the plugin into the game (setup asked for it): that, and done.
     let args: Vec<String> = std::env::args().collect();
@@ -380,6 +384,14 @@ fn main() {
             // setup closure, and its `Drop` ends the layer with it (which it did: the layer served for
             // a moment and then went).
             app.manage(QqLayer(std::sync::Mutex::new(qq_layer)));
+            // NetEase Cloud Music's layer: the same shape, its own folder and port (`netease_layer.rs`).
+            let netease_layer = resources_folder(app.handle()).and_then(|resources| {
+                westplay_host::netease_layer::Layer::start(&westplay_host::netease_layer::folder(&resources))
+            });
+            if let Some(layer) = &netease_layer {
+                westplay_host::startup::mark(&format!("app: NetEase layer on {}", layer.port()));
+            }
+            app.manage(NeteaseLayer(std::sync::Mutex::new(netease_layer)));
             // The tray: the closed window lives here. Its menu shows WestPlay again or quits it for good.
             {
                 use tauri::menu::{Menu, MenuItem};

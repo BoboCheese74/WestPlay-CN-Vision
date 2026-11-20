@@ -39,6 +39,12 @@ dist/
 # release installer carries it (app/tauri.conf.json's `qq-music-layer/` resource).
 /app/qq-music-layer/
 
+# NetEase Cloud Music's layer runtime: the embeddable interpreter and the layer's code staged beside
+# it (about 19 MB). Built by tools/scripts/build-netease-layer.ps1 from `netease_layer/`; the release
+# installer carries it (app/tauri.conf.json's `netease-layer/` resource). The layer's own sources
+# (`netease_layer/`) are committed as usual.
+/netease-layer/
+
 # The released installers and manifests (build/<version>/)
 /build/
 
