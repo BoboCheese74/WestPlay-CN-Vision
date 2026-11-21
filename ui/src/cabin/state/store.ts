@@ -65,7 +65,7 @@ import {
 import { useKeyboard } from '../keyboard/store'
 import { receiveMapFolder } from '../maps/mapData'
 import { receiveDetours, receiveFollowed, receiveRouteAnswer, receiveRoutes } from '../maps/routeChange'
-import { type Point, restLine, type RouteNode, routeSpans } from '../maps/route'
+import { type CoachAnchor, type Point, restLine, type RouteNode, routeSpans } from '../maps/route'
 import { DEFAULT_WALLPAPER_ID } from '../wallpapers'
 import { settingsShown } from './wallpaperRotation'
 import { isReleasedApp } from './apps'
@@ -517,6 +517,8 @@ export interface LiveState {
     activeEnd?: number | null
     /** Map node indices of the remaining intermediate coach stops. */
     coachStops?: readonly number[]
+    /** Parking positions and their traversed spans for this route ID, keyed by arrival node index. */
+    coachAnchors?: ReadonlyMap<number, CoachAnchor>
     distances: number[]
     /** How high each node is in the game, metres. */
     heights: number[]
@@ -762,7 +764,8 @@ function receiveHostMessage(now: () => number): (message: HostMessage) => void {
           exit,
         }))
         const shifts = new Map(message.shifts ?? [])
-        useLive.setState({ route: { ...route, paths: new Map(message.paths), maneuvers, shifts } })
+        const coachAnchors = new Map(message.coachAnchors?.map(([node, position, span]) => [node, { position, span }]))
+        useLive.setState({ route: { ...route, paths: new Map(message.paths), maneuvers, shifts, coachAnchors } })
         break
       }
       case 'routeNext':

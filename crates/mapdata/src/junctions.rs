@@ -91,6 +91,17 @@ pub struct Junction {
     pub maneuver: Option<Maneuver>,
 }
 
+/// A parking position matched to one occurrence of a coach stop on the route.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct CoachAnchor {
+    /// Index of the game's marked arrival node.
+    pub node: usize,
+    /// The parking position in metres (x, z).
+    pub position: Point,
+    /// The route span beside the parking position, or `None` when it is the arrival node itself.
+    pub span: Option<usize>,
+}
+
 /// What the route takes from the game's files: the way through each junction it crosses, and where it runs
 /// across its roads.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -102,6 +113,8 @@ pub struct Ways {
     /// The way of each node's roads, either way along them: what a route planned here has no word of, and the game's
     /// route has.
     pub forward: Vec<Point>,
+    /// Parking positions whose approach could be matched to an ordered coach arrival.
+    pub coach_anchors: Vec<CoachAnchor>,
 }
 
 /// The game's files (with the map mods the player plays), the map they're read for, and the definitions the
@@ -130,6 +143,12 @@ impl Junctions {
     /// The way through each prefab the route `nodes` crosses (each pair of consecutive nodes that are ends
     /// of one prefab), and its turn there; and where the route runs across its roads.
     pub fn junctions(&self, nodes: &[RouteNode]) -> Result<Ways, MapError> {
+        self.junctions_with_coach_stops(nodes, &[])
+    }
+
+    /// Resolves ways along `nodes` and parking positions for the game's ordered `coach_stops` indices.
+    /// Returns the ways and the uniquely matched stops, or a `MapError` if a sector cannot be read.
+    pub fn junctions_with_coach_stops(&self, nodes: &[RouteNode], coach_stops: &[usize]) -> Result<Ways, MapError> {
         // Every sector a node is in, and those around it (a prefab and its nodes may lie in different ones).
         let sectors: BTreeSet<(i32, i32)> = nodes
             .iter()
@@ -150,6 +169,7 @@ impl Junctions {
         let mut prefabs = Prefabs::new(&self.files, &self.definitions);
         let shifted = shifted_nodes(&map, &self.definitions, &self.looks, &mut prefabs, &prefabs_at, nodes);
         let mut junctions = Vec::new();
+        let mut coach_prefabs = HashMap::new();
         // The junctions whose way is its lanes, never the road's line, and where along the way (a share of its length,
         // first and last) the line is exactly on them: where it passes a barrier (a toll booth, a border gate: the one it
         // drives through), there; where trucks are kept to lanes of their own with no barrier on them, the middle.
@@ -184,6 +204,9 @@ impl Junctions {
                     on_lanes.insert(span, [0.5, 0.5]);
                 }
                 junctions.push(Junction { span, path: placed, maneuver: maneuver(prefab, own(a), own(b)) });
+                if !coach_stops.is_empty() {
+                    coach_prefabs.insert(span, map.items[index].uid);
+                }
                 break;
             }
         }
@@ -226,8 +249,76 @@ impl Junctions {
             .collect();
         let forward =
             nodes.iter().map(|node| map.nodes.get(&node.uid).map_or([1.0, 0.0], geometry::node_forward)).collect();
-        Ok(Ways { junctions, shifts, forward })
+        let coach_anchors = coach_anchors(&map, nodes, coach_stops, &coach_prefabs);
+        Ok(Ways { junctions, shifts, forward, coach_anchors })
     }
+}
+
+/// Matches a coach stop only to an adjacent span of its marked arrival. The same road can appear again
+/// in reverse on a round trip, and a prefab can have more than one stop.
+fn coach_anchors(
+    map: &world::Map,
+    route: &[RouteNode],
+    stops: &[usize],
+    prefabs: &HashMap<usize, u64>,
+) -> Vec<CoachAnchor> {
+    if stops.is_empty() {
+        return Vec::new();
+    }
+    let parking: Vec<_> = map
+        .items
+        .iter()
+        .filter_map(|item| match item.data {
+            ItemData::BusStop { attached, node } if node != 0 => Some((attached, node)),
+            _ => None,
+        })
+        .collect();
+    let attached: BTreeSet<_> = parking.iter().map(|&(attached, _)| attached).collect();
+    let roads: HashMap<_, _> = map
+        .items
+        .iter()
+        .filter_map(|item| match item.data {
+            ItemData::Road { start_node, end_node, .. } if attached.contains(&item.uid) => {
+                Some((item.uid, [start_node, end_node]))
+            }
+            _ => None,
+        })
+        .collect();
+    stops.iter().filter_map(|&index| coach_anchor(map, route, index, &parking, &roads, prefabs)).collect()
+}
+
+/// Matches the marked node itself, or a single parking position beside one of its traversed ways.
+fn coach_anchor(
+    map: &world::Map,
+    route: &[RouteNode],
+    index: usize,
+    parking: &[(u64, u64)],
+    roads: &HashMap<u64, [u64; 2]>,
+    prefabs: &HashMap<usize, u64>,
+) -> Option<CoachAnchor> {
+    let arrival = map.nodes.get(&route.get(index)?.uid)?;
+    if parking.iter().any(|&(_, node)| node == arrival.uid) {
+        return Some(CoachAnchor { node: index, position: geometry::node_point(arrival), span: None });
+    }
+    let spans = [index.checked_sub(1), Some(index)].into_iter().flatten();
+    let mut matching = spans.filter_map(|span| {
+        let pair = route.get(span..span + 2)?;
+        let ends = [pair[0].uid, pair[1].uid];
+        let mut stations = parking.iter().filter(|&&(parent, _)| {
+            parent != 0
+                && [arrival.backward_item, arrival.forward_item].contains(&parent)
+                && (prefabs.get(&span) == Some(&parent)
+                    || roads.get(&parent).is_some_and(|&road| road == ends || road == [ends[1], ends[0]]))
+        });
+        let &(_, node) = stations.next()?;
+        Some((span, node, stations.next().is_none()))
+    });
+    let (span, node, unique) = matching.next()?;
+    if !unique || matching.next().is_some() {
+        return None;
+    }
+    let position = geometry::node_point(map.nodes.get(&node)?);
+    Some(CoachAnchor { node: index, position, span: Some(span) })
 }
 
 /// Less than this between a road's two surfaces is them meeting, metres: one asphalt (the gaps the game's looks have are none

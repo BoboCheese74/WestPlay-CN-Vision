@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   approachLine,
+  coachStopOnSpan,
   cutRaised,
   headLine,
   heightOnSpan,
@@ -14,6 +15,7 @@ import {
   routeSpans,
   snapToRoute,
   splitRoute,
+  splitRouteAt,
   type Spans,
   type SurfaceAt,
 } from './route'
@@ -167,6 +169,50 @@ describe('the coach route', () => {
     expect(splitRoute(returning, 0)).toEqual({ active: [], future: returning })
     expect(splitRoute(returning, null)).toEqual({ active: returning, future: [] })
     expect(splitRoute(returning, 4)).toEqual({ active: returning, future: [] })
+  })
+})
+
+describe('parking along the marked arrival span', () => {
+  const spans: Spans = [
+    [
+      [0, 0],
+      [20, 0],
+    ],
+    [
+      [20, 0],
+      [60, 0],
+      [100, 0],
+    ],
+    [
+      [100, 0],
+      [20, 0],
+    ],
+  ]
+
+  it('lights the arrival up to the bay and leaves the reverse pass dimmed', () => {
+    const cut = coachStopOnSpan(spans, 1, [88, 6])!
+    const shown = splitRouteAt(spans, cut)
+    expect(restLine(shown.active, -1)).toEqual([
+      [0, 0],
+      [20, 0],
+      [60, 0],
+      [88, 0],
+    ])
+    expect(restLine(shown.future, -1)).toEqual([
+      [88, 0],
+      [100, 0],
+      [20, 0],
+    ])
+    const at = shown.active[1].at(-1)
+    expect(shown.future[0][0]).toBe(at)
+    expect(shown.spans[1][2]).toBe(at)
+    expect(progressOf(shown.active, 2, [80, 0])?.at).toEqual([80, 0])
+  })
+
+  it('keeps a terminal outside the existing route from extending the line', () => {
+    expect(coachStopOnSpan(spans, 1, [105, 6])).toBeNull()
+    expect(coachStopOnSpan(spans, 1, [18, 6])).toBeNull()
+    expect(coachStopOnSpan(spans, 1, [80, 40])).toBeNull()
   })
 })
 

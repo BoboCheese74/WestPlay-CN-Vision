@@ -9,7 +9,7 @@ use std::time::{Duration, Instant};
 
 use crate::maps::PlayedMap;
 
-use westplay_mapdata::junctions::{self, Junctions, Maneuver};
+use westplay_mapdata::junctions::{self, CoachAnchor, Junctions, Maneuver};
 use westplay_setup::map;
 pub use westplay_shared::game_route::RouteNode;
 use westplay_shared::game_route::{Layout, RouteReader, Update, locate_in_image};
@@ -56,6 +56,7 @@ pub enum RouteUpdate {
         paths: Vec<(usize, Vec<[f32; 2]>)>,
         maneuvers: Vec<(usize, Maneuver)>,
         shifts: Vec<(usize, f32)>,
+        coach_anchors: Vec<CoachAnchor>,
     },
     /// The ways of route `index` offered for the page's request `id` (planner.rs), each as it's read: a route across the
     /// map takes seconds.
@@ -77,8 +78,8 @@ pub struct OfferedWays {
 
 /// What's to be read from the game's files.
 enum Job {
-    /// A route whose junctions are to be resolved, from the game installed in the folder.
-    Route(u32, Vec<RouteNode>, Option<PathBuf>),
+    /// A live route and its marked coach arrivals, read against the game installed in the folder.
+    Route(u32, Vec<RouteNode>, Vec<usize>, Option<PathBuf>),
     /// The routes offered for a request, each as its map nodes.
     Offered(u32, Vec<Vec<junctions::RouteNode>>),
 }
@@ -236,7 +237,7 @@ impl DisplayedRoute {
         jobs: &Sender<Job>,
     ) -> bool {
         match update {
-            Update::Route { nodes, waypoints, coach_stops, .. } => {
+            Update::Route { nodes, waypoints, coach_stops, coach_destination, .. } => {
                 log!("{}", said_route(&nodes, &waypoints));
                 if let Some(end) = coach_stops.first() {
                     log!(
@@ -249,7 +250,11 @@ impl DisplayedRoute {
                 self.next = 0;
                 self.distances_said = None;
                 let id = self.number;
-                let job = Job::Route(id, nodes.clone(), install.map(Path::to_owned));
+                let mut stops = coach_stops.clone();
+                if coach_destination && let Some(terminal) = nodes.len().checked_sub(1) {
+                    stops.push(terminal);
+                }
+                let job = Job::Route(id, nodes.clone(), stops, install.map(Path::to_owned));
                 // Send the route before its junctions can be resolved.
                 if sender.send(RouteUpdate::Route { id, nodes, waypoints, coach_stops }).is_err() {
                     return false;
@@ -350,7 +355,7 @@ fn resolve_junctions(pending: Receiver<Job>, sender: Sender<RouteUpdate>, played
             if matches!(job, Job::Route(..)) { route = Some(job) } else { offered = Some(job) }
         }
         for job in route.into_iter().chain(offered) {
-            if let Job::Route(_, _, folder) = &job {
+            if let Job::Route(_, _, _, folder) = &job {
                 install.clone_from(folder);
             }
             let files = {
@@ -364,13 +369,20 @@ fn resolve_junctions(pending: Receiver<Job>, sender: Sender<RouteUpdate>, played
             }
             let Some((_, junctions)) = &opened else { continue };
             match job {
-                Job::Route(id, nodes, _) => {
+                Job::Route(id, nodes, stops, _) => {
                     let route: Vec<junctions::RouteNode> = nodes
                         .iter()
                         .map(|node| junctions::RouteNode { uid: node.uid, position: node.position })
                         .collect();
-                    match junctions.junctions(&route) {
+                    match junctions.junctions_with_coach_stops(&route, &stops) {
                         Ok(found) => {
+                            for stop in stops {
+                                if !found.coach_anchors.iter().any(|anchor| anchor.node == stop) {
+                                    log!(
+                                        "route {id}: coach stop node {stop} has no unique parking location on its adjacent ways"
+                                    );
+                                }
+                            }
                             let maneuvers = found
                                 .junctions
                                 .iter()
@@ -378,7 +390,14 @@ fn resolve_junctions(pending: Receiver<Job>, sender: Sender<RouteUpdate>, played
                                 .collect();
                             let paths =
                                 found.junctions.into_iter().map(|junction| (junction.span, junction.path)).collect();
-                            if sender.send(RouteUpdate::Paths { id, paths, maneuvers, shifts: found.shifts }).is_err() {
+                            let update = RouteUpdate::Paths {
+                                id,
+                                paths,
+                                maneuvers,
+                                shifts: found.shifts,
+                                coach_anchors: found.coach_anchors,
+                            };
+                            if sender.send(update).is_err() {
                                 return;
                             }
                         }

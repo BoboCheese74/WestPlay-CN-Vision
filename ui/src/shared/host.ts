@@ -231,6 +231,8 @@ export type HostMessage =
       paths: [number, [number, number][]][]
       maneuvers: [number, string, number, number | null][]
       shifts: [number, number][]
+      /** Each coach arrival's node index, parking position, and adjacent span (null at that node). */
+      coachAnchors?: [number, [number, number], number | null][]
     }
   /** The truck's progress along the route: the index of the map node ahead of it. */
   | { type: 'routeNext'; next: number }
