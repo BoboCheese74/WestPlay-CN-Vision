@@ -53,6 +53,8 @@ impl Record {
 #[repr(C)]
 struct RouteBuffer {
     magic: AtomicU32,
+    // The v1 alignment gap before sequence. Old publishers leave these zero-filled bytes alone.
+    coach_destination: AtomicU32,
     sequence: AtomicU64,
     node_count: AtomicU32,
     waypoint_count: AtomicU32,
@@ -62,6 +64,8 @@ struct RouteBuffer {
     stops: [AtomicU32; MAX_WAYPOINTS],
     nodes: [Record; MAX_NODES],
 }
+
+const _: () = assert!(std::mem::offset_of!(RouteBuffer, sequence) == 8);
 
 impl RouteBuffer {
     fn still(&self, sequence: u64) -> bool {
@@ -90,7 +94,12 @@ impl RouteBuffer {
         if !valid_stops(&coach_stops, nodes.len()) || !nodes.iter().all(RouteNode::is_finite) {
             return Err(io::Error::new(io::ErrorKind::InvalidData, "route snapshot has invalid geometry or stops"));
         }
-        Ok(vec![Update::Route { id: (sequence / 2) as u32, nodes, waypoints, coach_stops }, Update::Next(next)])
+        // v1 publishers also verified the terminal whenever they could send intermediate stops.
+        let coach_destination = self.coach_destination.load(Ordering::Relaxed) == 1 || stops > 0;
+        Ok(vec![
+            Update::Route { id: (sequence / 2) as u32, nodes, waypoints, coach_stops, coach_destination },
+            Update::Next(next),
+        ])
     }
 }
 
@@ -154,7 +163,7 @@ impl RoutePublisher {
             )?
         };
         let mut publisher = Self(View::map(handle, FILE_MAP_WRITE)?);
-        publisher.replace(&[], &[], &[], 0);
+        publisher.replace(&[], &[], &[], false, 0);
         publisher.0.buffer().magic.store(MAGIC, Ordering::Release);
         Ok(publisher)
     }
@@ -164,11 +173,11 @@ impl RoutePublisher {
     pub fn publish(&mut self, updates: &[Update]) -> io::Result<()> {
         match updates {
             [] => {}
-            [Update::None] => self.replace(&[], &[], &[], 0),
+            [Update::None] => self.replace(&[], &[], &[], false, 0),
             [Update::Next(next)] if *next < self.0.buffer().node_count.load(Ordering::Relaxed) as usize => {
                 self.0.buffer().next.store(*next as u32, Ordering::Release);
             }
-            [Update::Route { nodes, waypoints, coach_stops, .. }, Update::Next(next)]
+            [Update::Route { nodes, waypoints, coach_stops, coach_destination, .. }, Update::Next(next)]
                 if nodes.len() <= MAX_NODES
                     && waypoints.len() <= MAX_WAYPOINTS
                     && coach_stops.len() <= MAX_WAYPOINTS
@@ -176,14 +185,21 @@ impl RoutePublisher {
                     && valid_stops(coach_stops, nodes.len())
                     && nodes.iter().all(RouteNode::is_finite) =>
             {
-                self.replace(nodes, waypoints, coach_stops, *next);
+                self.replace(nodes, waypoints, coach_stops, *coach_destination, *next);
             }
             _ => return Err(io::Error::new(io::ErrorKind::InvalidInput, "invalid route publication")),
         }
         Ok(())
     }
 
-    fn replace(&mut self, nodes: &[RouteNode], waypoints: &[u64], stops: &[usize], next: usize) {
+    fn replace(
+        &mut self,
+        nodes: &[RouteNode],
+        waypoints: &[u64],
+        stops: &[usize],
+        coach_destination: bool,
+        next: usize,
+    ) {
         let buffer = self.0.buffer();
         let previous = buffer.sequence.load(Ordering::Relaxed) & !1;
         buffer.sequence.swap(previous.wrapping_add(1), Ordering::AcqRel);
@@ -199,6 +215,7 @@ impl RoutePublisher {
         buffer.node_count.store(nodes.len() as u32, Ordering::Relaxed);
         buffer.waypoint_count.store(waypoints.len() as u32, Ordering::Relaxed);
         buffer.stop_count.store(stops.len() as u32, Ordering::Relaxed);
+        buffer.coach_destination.store(u32::from(coach_destination), Ordering::Relaxed);
         buffer.next.store(next as u32, Ordering::Relaxed);
         buffer.sequence.store(previous.wrapping_add(2), Ordering::Release);
     }
@@ -206,7 +223,7 @@ impl RoutePublisher {
 
 impl Drop for RoutePublisher {
     fn drop(&mut self) {
-        self.replace(&[], &[], &[], 0);
+        self.replace(&[], &[], &[], false, 0);
     }
 }
 
@@ -287,17 +304,31 @@ mod tests {
         assert_eq!(subscriber.poll().unwrap(), [Update::None]);
         let nodes = nodes();
         let waypoints = vec![11, 33];
-        let publish = |publisher: &mut RoutePublisher, coach_stops: Vec<usize>, next: usize| {
-            publisher.publish(&[
-                Update::Route { id: 9, nodes: nodes.clone(), waypoints: waypoints.clone(), coach_stops },
-                Update::Next(next),
-            ])
-        };
-        publish(&mut publisher, vec![1, 2, 3], 0).unwrap();
+        let publish =
+            |publisher: &mut RoutePublisher, coach_stops: Vec<usize>, coach_destination: bool, next: usize| {
+                publisher.publish(&[
+                    Update::Route {
+                        id: 9,
+                        nodes: nodes.clone(),
+                        waypoints: waypoints.clone(),
+                        coach_stops,
+                        coach_destination,
+                    },
+                    Update::Next(next),
+                ])
+            };
+        // A v1 DLL leaves the terminal flag zero but still sends verified intermediate arrivals.
+        publish(&mut publisher, vec![1, 2, 3], false, 0).unwrap();
         assert_eq!(
             subscriber.poll().unwrap(),
             [
-                Update::Route { id: 2, nodes: nodes.clone(), waypoints: waypoints.clone(), coach_stops: vec![1, 2, 3] },
+                Update::Route {
+                    id: 2,
+                    nodes: nodes.clone(),
+                    waypoints: waypoints.clone(),
+                    coach_stops: vec![1, 2, 3],
+                    coach_destination: true
+                },
                 Update::Next(0)
             ],
         );
@@ -305,13 +336,14 @@ mod tests {
 
         publisher.publish(&[Update::Next(2)]).unwrap();
         assert_eq!(subscriber.poll().unwrap(), [Update::Next(2)]);
-        assert_eq!(publish(&mut publisher, vec![3, 2], 2).unwrap_err().kind(), io::ErrorKind::InvalidInput);
+        assert_eq!(publish(&mut publisher, vec![3, 2], true, 2).unwrap_err().kind(), io::ErrorKind::InvalidInput);
         assert!(subscriber.poll().unwrap().is_empty());
 
         for (remaining, next) in [(vec![2, 3], 2), (vec![3], 3), (vec![], 4)] {
-            publish(&mut publisher, remaining.clone(), next).unwrap();
+            publish(&mut publisher, remaining.clone(), true, next).unwrap();
             let updates = subscriber.poll().unwrap();
-            let [Update::Route { coach_stops, .. }, Update::Next(ahead)] = updates.as_slice() else {
+            let [Update::Route { coach_stops, coach_destination: true, .. }, Update::Next(ahead)] = updates.as_slice()
+            else {
                 panic!("unexpected route changes: {updates:?}");
             };
             assert_eq!((coach_stops, *ahead), (&remaining, next));
@@ -319,6 +351,11 @@ mod tests {
         assert!(matches!(
             RouteSubscriber::open(pid).unwrap().poll().unwrap()[..],
             [Update::Route { .. }, Update::Next(4)]
+        ));
+        publish(&mut publisher, vec![], false, 0).unwrap();
+        assert!(matches!(
+            subscriber.poll().unwrap()[..],
+            [Update::Route { coach_destination: false, .. }, Update::Next(0)]
         ));
         drop(publisher);
         assert_eq!(subscriber.poll().unwrap(), [Update::None]);

@@ -25,6 +25,12 @@ export interface RouteNode {
   forward: Point
 }
 
+/** A coach's parking position and the span to project it onto, or null at the marked node. */
+export interface CoachAnchor {
+  position: Point
+  span: number | null
+}
+
 /** The route between consecutive nodes: `spans[i]` runs from node `i` to node `i + 1`, as points. */
 export type Spans = Point[][]
 
@@ -37,6 +43,48 @@ export type Spans = Point[][]
 export function splitRoute(spans: Spans, end: number | null | undefined): { active: Spans; future: Spans } {
   if (end == null || !Number.isInteger(end) || end < 0 || end >= spans.length) return { active: spans, future: [] }
   return { active: spans.slice(0, end), future: spans.slice(end) }
+}
+
+/** A station bay can sit beside the carriageway by about the width of a wide road, metres. */
+const STOP_REACH = 18
+
+/**
+ * Finds where the `parking` position falls on a verified `span` of `spans`, measured in game metres.
+ * Returns null if the span is absent, too far away, or does not reach the position along the road.
+ */
+export function coachStopOnSpan(spans: Spans, span: number, parking: Point): Progress | null {
+  const points = spans[span]
+  if (!points || !parking.every(Number.isFinite)) return null
+  const projected = progressOf([points], 0, parking)
+  if (!projected || projected.distance > STOP_REACH) return null
+  const { index } = projected
+  const [from, to] = [points[index], points[index + 1]]
+  const segment = sub(to, from)
+  const length2 = dot(segment, segment)
+  const along = dot(sub(parking, from), segment)
+  // A projection clamped beyond the span's ends would claim an approach the game did not give us.
+  if (length2 === 0 || (index === 0 && along < 0) || (index === points.length - 2 && along > length2)) return null
+  const at = along <= 0 ? from : along >= length2 ? to : projected.at
+  return { ...projected, at, span }
+}
+
+/**
+ * Splits `spans` at a parking point `cut` returned by `coachStopOnSpan` for these spans.
+ * Returns the whole route and its active and future parts. They share the cut vertex for height lookup.
+ */
+export function splitRouteAt(spans: Spans, cut: Progress): { spans: Spans; active: Spans; future: Spans } {
+  const points = spans[cut.span]
+  const before = points.slice(0, cut.index + 1)
+  const after = points.slice(cut.index + 1)
+  if (before.at(-1) !== cut.at) before.push(cut.at)
+  if (after[0] !== cut.at) after.unshift(cut.at)
+  const active = spans.slice(0, cut.span)
+  const future = spans.slice(cut.span + 1)
+  if (before.length > 1) active.push(before)
+  if (after.length > 1) future.unshift(after)
+  const whole = spans.slice()
+  whole[cut.span] = [...before, ...after.slice(1)]
+  return { spans: whole, active, future }
 }
 
 /**

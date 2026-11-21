@@ -3379,7 +3379,7 @@ fn weather_message_for(weather: Option<Weather>) -> String {
 /// The game's route for the page: `{"type":"route","id":5,"nodes":[[x,z,forward x,forward z,distance
 /// left,height],...]}` (its map nodes in order, metres; `"nodes":null` without a route), `{"type":"routePaths",
 /// "id":5,"paths":[[2,[[x,z],...]],...],"maneuvers":[[2,"roundabout",-90.0,3],...],"shifts":[[3,6.5],...]}` (the ways through its
-/// junctions and the turns there, each by the node it starts at: the turn, its angle, a roundabout's exit),
+/// junctions, turns, lane shifts and the coach arrivals' verified parking positions and spans),
 /// `{"type":"offeredWays","id":7,"index":1,"nodes":[[x,z,forward x,forward z],...],"paths":...,"shifts":...}` (one of the
 /// routes offered for a `routes` request) and `{"type":"routeNext","next":3}` (the next node ahead of the truck).
 fn route_message_for(update: &RouteUpdate) -> String {
@@ -3403,7 +3403,7 @@ fn route_message_for(update: &RouteUpdate) -> String {
             })
             .to_string()
         }
-        RouteUpdate::Paths { id, paths, maneuvers, shifts } => {
+        RouteUpdate::Paths { id, paths, maneuvers, shifts, coach_anchors } => {
             let maneuvers: Vec<serde_json::Value> = maneuvers
                 .iter()
                 .map(|(span, maneuver)| {
@@ -3415,8 +3415,13 @@ fn route_message_for(update: &RouteUpdate) -> String {
                 })
                 .collect();
             let shifts = rounded(shifts);
-            serde_json::json!({ "type": "routePaths", "id": id, "paths": paths, "maneuvers": maneuvers, "shifts": shifts })
-                .to_string()
+            let coach_anchors: Vec<_> =
+                coach_anchors.iter().map(|anchor| (anchor.node, anchor.position, anchor.span)).collect();
+            serde_json::json!({
+                "type": "routePaths", "id": id, "paths": paths, "maneuvers": maneuvers,
+                "shifts": shifts, "coachAnchors": coach_anchors,
+            })
+            .to_string()
         }
         RouteUpdate::Offered { id, index, route } => {
             let nodes: Vec<[f32; 4]> =
@@ -3919,7 +3924,7 @@ mod tests {
     #[test]
     fn route_messages_carry_the_nodes_and_the_progress() {
         use crate::route::{RouteNode, RouteUpdate};
-        use westplay_mapdata::junctions::{Maneuver, Turn};
+        use westplay_mapdata::junctions::{CoachAnchor, Maneuver, Turn};
         let node = RouteNode { position: [1.0, 2.0], height: 3.0, forward: [0.0, -1.0], uid: 7, distance_left: 1500.0 };
         assert_eq!(
             super::route_message_for(&RouteUpdate::Route {
@@ -3941,8 +3946,9 @@ mod tests {
                     (7, Maneuver { turn: Turn::ExitRight, angle: 17.2 }),
                 ],
                 shifts: vec![(3, 6.5)],
+                coach_anchors: vec![CoachAnchor { node: 2, position: [3.0, 4.0], span: Some(2) }],
             }),
-            r#"{"id":5,"maneuvers":[[2,"roundabout",-90.0,3],[7,"exit-right",17.0,null]],"paths":[[2,[[1.0,2.0],[3.0,4.0]]]],"shifts":[[3,6.5]],"type":"routePaths"}"#
+            r#"{"coachAnchors":[[2,[3.0,4.0],2]],"id":5,"maneuvers":[[2,"roundabout",-90.0,3],[7,"exit-right",17.0,null]],"paths":[[2,[[1.0,2.0],[3.0,4.0]]]],"shifts":[[3,6.5]],"type":"routePaths"}"#
         );
         assert_eq!(super::route_message_for(&RouteUpdate::None), r#"{"id":null,"nodes":null,"type":"route"}"#);
     }
@@ -3952,7 +3958,12 @@ mod tests {
         use crate::route::{OfferedWays, RouteUpdate};
         use westplay_mapdata::junctions::{Junction, Ways};
         let junction = Junction { span: 0, path: vec![[1.0, 2.0], [3.0, 4.0]], maneuver: None };
-        let ways = Ways { junctions: vec![junction], shifts: vec![(1, 6.504)], forward: vec![[0.0, -1.0], [1.0, 0.0]] };
+        let ways = Ways {
+            junctions: vec![junction],
+            shifts: vec![(1, 6.504)],
+            forward: vec![[0.0, -1.0], [1.0, 0.0]],
+            ..Ways::default()
+        };
         let route = OfferedWays { nodes: vec![[1.0, 2.0], [3.0, 4.0]], ways };
         assert_eq!(
             super::route_message_for(&RouteUpdate::Offered { id: 7, index: 1, route }),

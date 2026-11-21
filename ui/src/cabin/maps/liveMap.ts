@@ -37,6 +37,7 @@ import { loadView, type SavedView, saveView } from './mapView'
 import { fromLngLat, labelRange, metresBetween, toLngLat } from './projection'
 import {
   approachLine,
+  coachStopOnSpan,
   cutRaised,
   headLine,
   heightOnSpan,
@@ -51,6 +52,7 @@ import {
   routeSpans,
   snapToRoute,
   splitRoute,
+  splitRouteAt,
   type Spans,
 } from './route'
 import {
@@ -1202,12 +1204,18 @@ function prepareShownRoute(target: LiveMap, route: LiveState['route']): ShownRou
   const activeEnd = route?.activeEnd
   // Hosts that only send a split point can still show their next stop.
   const stops = route?.coachStops ?? (activeEnd == null ? [] : [activeEnd])
-  const { active, future } = splitRoute(spans, stops[0])
+  const terminal = spans.length
+  const parking = new Map<number, { position: Point; cut: Progress | null }>()
+  for (const [node, { position, span }] of route?.coachAnchors ?? []) {
+    if ((node !== terminal && !stops.includes(node)) || !position.every(Number.isFinite)) continue
+    const cut = span === null ? null : coachStopOnSpan(spans, span, position)
+    if (span === null || cut) parking.set(node, { position, cut })
+  }
+  const cut = parking.get(stops[0] ?? terminal)?.cut
+  const sections = cut ? splitRouteAt(spans, cut) : { spans, ...splitRoute(spans, stops[0]) }
   const shown: ShownRoute = {
     route,
-    spans,
-    active,
-    future,
+    ...sections,
     restAfter: null,
     headFrom: null,
     heights: new Map(),
@@ -1217,8 +1225,8 @@ function prepareShownRoute(target: LiveMap, route: LiveState['route']): ShownRou
     futureRaised: [],
   }
   target.routeShown = shown
-  placeRouteMarker(target.map, target.destination, route?.nodes.at(-1)?.position)
-  syncWaypointMarkers(target, spans, stops)
+  placeRouteMarker(target.map, target.destination, parking.get(terminal)?.position ?? route?.nodes.at(-1)?.position)
+  syncWaypointMarkers(target, spans, stops, parking)
   return shown
 }
 
@@ -1233,12 +1241,17 @@ function coachWaypointMarker(): maplibregl.Marker {
   return routeMarker(element)
 }
 
-function syncWaypointMarkers(target: LiveMap, spans: Spans, stops: readonly number[]) {
+function syncWaypointMarkers(
+  target: LiveMap,
+  spans: Spans,
+  stops: readonly number[],
+  parking: ReadonlyMap<number, { position: Point }>,
+) {
   const markers: LiveMap['waypoints'] = new Map()
   for (const stop of new Set(stops)) {
     if (!Number.isInteger(stop) || stop < 0 || stop >= spans.length) continue
     // At a turnaround, use the arrival lane. A pending stop can also be at the first route node.
-    const point = spans[stop - 1]?.at(-1) ?? spans[stop][0]
+    const point = parking.get(stop)?.position ?? spans[stop - 1]?.at(-1) ?? spans[stop][0]
     if (!point) continue
     const marker = target.waypoints.get(stop)?.marker ?? coachWaypointMarker()
     placeRouteMarker(target.map, marker, point)

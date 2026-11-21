@@ -81,7 +81,14 @@ impl RouteNode {
 #[derive(Clone, Debug, PartialEq)]
 pub enum Update {
     /// A new geometry and the stops it includes. A progress update follows it in the same sample.
-    Route { id: u32, nodes: Vec<RouteNode>, waypoints: Vec<u64>, coach_stops: Vec<usize> },
+    Route {
+        id: u32,
+        nodes: Vec<RouteNode>,
+        waypoints: Vec<u64>,
+        coach_stops: Vec<usize>,
+        /// The last map node is the game's verified coach terminal, even on the last leg.
+        coach_destination: bool,
+    },
     /// The next map node ahead in the current route.
     Next(usize),
     /// The game no longer has a route to show.
@@ -100,7 +107,7 @@ pub struct RouteReader {
     number: u32,
     sent_next: Option<usize>,
     coach: CoachJob,
-    coach_stops: Vec<usize>,
+    coach_stops: Option<Vec<usize>>,
 }
 
 /// Which route the game's memory holds: its id, where its nodes are and how many.
@@ -129,9 +136,9 @@ impl RouteReader {
                 .and_then(|waypoints| coach_stops(memory, global, layout, coach, &first, waypoints));
             // Keep the verified stops of this geometry while the SDK and the GPS update separately.
             let coach_stops = match marked_stops {
-                Some(stops) => stops,
+                Some(stops) => Some(stops),
                 None if !new_route && coach.is_active() => self.coach_stops.clone(),
-                None => Vec::new(),
+                None => None,
             };
             let ReadRoute { nodes, after, .. } = first;
             self.number = self.number.wrapping_add(1);
@@ -142,7 +149,8 @@ impl RouteReader {
                 id: self.number,
                 nodes: nodes.clone(),
                 waypoints: waypoints.unwrap_or_default(),
-                coach_stops,
+                coach_destination: coach_stops.is_some(),
+                coach_stops: coach_stops.unwrap_or_default(),
             });
             self.route = Some((key, nodes, after));
         }
@@ -164,7 +172,7 @@ impl RouteReader {
     fn lost(&mut self) -> Vec<Update> {
         self.sent_next = None;
         self.coach = CoachJob::default();
-        self.coach_stops.clear();
+        self.coach_stops = None;
         match self.route.take() {
             Some(_) => vec![Update::None],
             None => Vec::new(),
@@ -583,17 +591,18 @@ mod tests {
         let mut reader = RouteReader::default();
         let first = CoachJob { current_stage: 0, stage_count: 2 };
         let last = CoachJob { current_stage: 1, ..first };
-        let check = |updates: &[Update], stops: &[usize]| {
-            assert!(matches!(updates.first(), Some(Update::Route { coach_stops, .. }) if coach_stops == stops));
+        let check = |updates: &[Update], stops: &[usize], terminal: bool| {
+            assert!(matches!(updates.first(), Some(Update::Route { coach_stops, coach_destination, .. })
+                if coach_stops == stops && *coach_destination == terminal));
         };
-        check(&reader.poll(&outward, GLOBAL, &COACH_LAYOUT, first), &[3]);
+        check(&reader.poll(&outward, GLOBAL, &COACH_LAYOUT, first), &[3], true);
         // The SDK advances while the GPS still holds the old path.
-        check(&reader.poll(&outward, GLOBAL, &COACH_LAYOUT, last), &[3]);
+        check(&reader.poll(&outward, GLOBAL, &COACH_LAYOUT, last), &[3], true);
 
         let home = coach_navigator(2, &[0, 0, 0], &[(0, true), (1, false), (2, true)], &[2]);
-        check(&reader.poll(&home, GLOBAL, &COACH_LAYOUT, last), &[]);
+        check(&reader.poll(&home, GLOBAL, &COACH_LAYOUT, last), &[], true);
         let mut reader = RouteReader::default();
-        check(&reader.poll(&outward, GLOBAL, &COACH_LAYOUT, CoachJob::default()), &[]);
+        check(&reader.poll(&outward, GLOBAL, &COACH_LAYOUT, CoachJob::default()), &[], false);
     }
 
     #[test]

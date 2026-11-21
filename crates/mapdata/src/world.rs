@@ -536,6 +536,7 @@ fn used_nodes(items: &[Item]) -> HashSet<u64> {
             }
             ItemData::City { node, .. }
             | ItemData::Company { node, .. }
+            | ItemData::BusStop { node, .. }
             | ItemData::Ferry { node, .. }
             | ItemData::MapOverlay { node, .. }
             | ItemData::BezierPatch { node, .. }
@@ -774,6 +775,7 @@ fn rename_nodes(data: &mut ItemData, renamed: &HashMap<u64, u64>) {
         }
         ItemData::City { node, .. }
         | ItemData::Company { node, .. }
+        | ItemData::BusStop { node, .. }
         | ItemData::Ferry { node, .. }
         | ItemData::MapOverlay { node, .. }
         | ItemData::BezierPatch { node, .. }

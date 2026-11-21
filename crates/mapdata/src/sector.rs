@@ -268,6 +268,8 @@ pub enum ItemData {
         prefab: u64,
         node: u64,
     },
+    /// A coach parking position and the road or prefab it belongs to.
+    BusStop { attached: u64, node: u64 },
     Ferry {
         /// A train terminal rather than a port.
         train: bool,
@@ -602,6 +604,10 @@ fn parse_item(
             r.skip(8)?;
             ItemData::Prefab { flags, model, variant, nodes, origin, relief, parts }
         }
+        BUS_STOP => {
+            r.skip(8)?; // city token
+            ItemData::BusStop { attached: r.u64()?, node: r.u64()? }
+        }
         MAP_AREA => {
             let map_flags = MapFlags { hidden: bit(0, 3), secret: bit(0, 4), dlc_guard: flags[1] };
             let node_count = r.count()?;
@@ -831,7 +837,6 @@ fn skip_item(r: &mut Reader, item_type: u32, version: u32) -> Result<(), ItemErr
         SERVICE | FUEL_PUMP | VISIBILITY_AREA => skip_counted(r, 0x10, 8, 0)?,
         GARAGE => skip_counted(r, 0x1c, 8, 0)?,
         CUT_PLANE => skip_counted(r, 0, 8, 0)?,
-        BUS_STOP => r.skip(0x18)?, // city, prefab, node
         TRAFFIC_RULE => {
             let tags = r.count()?;
             r.skip_records(tags, 8)?;
