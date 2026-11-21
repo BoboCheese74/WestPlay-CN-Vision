@@ -62,9 +62,15 @@ impl Layer {
         }
 
         let python = interpreter(folder)?;
-        // The layer's code ships inside the runtime's folder, which is what lets `-m netease_layer` find
-        // it with no `PYTHONPATH`: so the folder to check is the code, beside the interpreter.
-        let code = python.parent().map(|dir| dir.join("netease_layer")).unwrap_or_else(|| folder.join("netease_layer"));
+        // The code is the layer's own, beside the interpreter it's lent: `python/netease_layer` when the
+        // layer was staged with its own runtime (how it was first shipped), else `netease_layer` in the
+        // layer's folder with `_boot.py` beside it (the two layers share one interpreter now).
+        let beside_runtime = folder.join("python").join("netease_layer");
+        let code = if beside_runtime.is_dir() {
+            beside_runtime
+        } else {
+            folder.join("netease_layer")
+        };
         if !code.is_dir() {
             crate::log!("[netease layer] {} isn't there", code.display());
             return None;
@@ -128,9 +134,18 @@ impl Drop for Layer {
 /// interpreter may be a different version with a different standard library. A missing runtime is a
 /// broken install, said plainly, not something to paper over.
 fn interpreter(folder: &Path) -> Option<PathBuf> {
-    let shipped = folder.join("python").join(if cfg!(windows) { "python.exe" } else { "python3" });
+    let exe = if cfg!(windows) { "python.exe" } else { "python3" };
+    let shipped = folder.join("python").join(exe);
     if shipped.is_file() {
         return Some(shipped);
+    }
+    // QQ Music's layer ships the same embeddable CPython, file for file: one copy serves both rather
+    // than eighteen megabytes of the installer being the same DLLs twice (`build-netease-layer.ps1`
+    // leaves `python/` out for that reason). Beside us, then beside WestPlay's other resources.
+    let beside = folder.parent().map(|up| up.join("qq-music-layer").join("python").join(exe));
+    if let Some(beside) = beside.filter(|path| path.is_file()) {
+        crate::log!("[netease layer] using QQ Music's interpreter at {}", beside.display());
+        return Some(beside);
     }
     crate::log!("[netease layer] no shipped interpreter under {}", folder.display());
     None
@@ -147,11 +162,19 @@ fn spawn(python: &Path, folder: &Path, port: u16) -> std::io::Result<Child> {
         .and_then(|dir| dir.parent().map(|up| up.join("netease")))
         .unwrap_or_else(|| folder.to_path_buf());
     let _ = std::fs::create_dir_all(&state);
+    // The layer's code sits beside the shared interpreter, not inside it. Embedded CPython ignores
+    // `PYTHONPATH` (it runs with a `._pth`), so it can't be told where the code is that way; the small
+    // `_boot.py` shipped with the code puts it on `sys.path` itself, and is what runs here.
+    let boot = folder.join("_boot.py");
     let mut command = Command::new(python);
+    command.current_dir(folder);
+    if boot.is_file() {
+        command.arg(&boot);
+    } else {
+        // A layer staged with its own `python/` (the shape before the two shared one): `-m` finds it.
+        command.arg("-m").arg("netease_layer");
+    }
     command
-        .current_dir(folder)
-        .arg("-m")
-        .arg("netease_layer")
         .arg("--port")
         .arg(port.to_string())
         .arg("--state")

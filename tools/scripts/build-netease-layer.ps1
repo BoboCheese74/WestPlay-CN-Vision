@@ -1,16 +1,13 @@
 # Build the NetEase Cloud Music layer as the installer ships it.
 #
-# The layer is Python, standard library only (`netease_layer/`). A player has no Python of their own,
-# so the interpreter travels with it: an embeddable CPython's `python/` folder, with the layer's own
-# code inside it — that is what lets `-m netease_layer` find the code with no PYTHONPATH
-# (`crates/host/src/netease_layer.rs` explains and looks for exactly this shape).
-#
-# QQ Music's layer ships the same kind of runtime (`tools/scripts/build-qq-layer.ps1`), so this one is
-# seeded from it rather than downloading another: only what the layer imports is copied over.
+# The layer is Python, standard library only (`netease_layer/`), so this stage is just its sources: an
+# embeddable CPython per layer would be eighteen megabytes of the very same files twice, and QQ Music's
+# layer already ships one. `crates/host/src/netease_layer.rs` looks for an interpreter beside the layer,
+# then beside the other layers' resources, and sets `PYTHONPATH` to wherever the code ended up.
 #
 #     pwsh -File tools/scripts/build-netease-layer.ps1
 #
-# Result: `netease-layer/` beside the sources, ~19 MB, which the installer carries as
+# Result: `netease-layer/netease_layer/` beside the sources, about 100 KB, which the installer carries as
 # `netease-layer/` (`app/tauri.conf.json`).
 
 $ErrorActionPreference = 'Stop'
@@ -18,21 +15,10 @@ $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $sources = Join-Path $root 'netease_layer'
 $output = Join-Path $root 'netease-layer'
-$staged = Join-Path $output 'python'
-# QQ Music's layer carries an embeddable CPython; this one is seeded from it. Both places it can be
-# are tried: the staged copy in the source tree, and an installed WestPlay beside it.
-$seeds = @(
-    (Join-Path $root 'app\qq-music-layer\python'),
-    (Join-Path $root '..\WestPlay\qq-music-layer\python'),
-    'D:\WestPlay\qq-music-layer\python',
-    (Join-Path $env:LOCALAPPDATA 'WestPlay\qq-music-layer\python')
-)
+$code = Join-Path $output 'netease_layer'
+
 if (-not (Test-Path $sources)) {
     throw "The layer's sources are missing: $sources"
-}
-$seed = $seeds | Where-Object { Test-Path (Join-Path $_ 'python.exe') } | Select-Object -First 1
-if (-not $seed) {
-    throw ("No interpreter to seed from (looked in: " + ($seeds -join '; ') + ")")
 }
 
 Write-Host "WestPlay's NetEase Cloud Music layer" -ForegroundColor Cyan
@@ -40,39 +26,31 @@ Write-Host "  sources  $sources"
 Write-Host "  output   $output"
 
 if (Test-Path $output) { Remove-Item $output -Recurse -Force }
-New-Item -ItemType Directory -Path (Join-Path $staged 'netease_layer') -Force | Out-Null
-
-# The interpreter: the pieces this layer imports, and nothing else.
-#   socket/ssl      -> _socket, _ssl, libssl, libcrypto
-#   hashlib         -> _hashlib
-#   http.server     -> in python312.zip
-#   unicodedata     -> unicodedata.pyd
-# Everything else is third-party size (`_decimal`, `_sqlite3`, `Lib/`, ...) a layer with no
-# dependencies has no use for.
-$files = @(
-    'python.exe', 'pythonw.exe', 'python3.dll', 'python312.dll', 'python312.zip', 'python312._pth',
-    'vcruntime140.dll', 'vcruntime140_1.dll', 'libffi-8.dll', 'libssl-3.dll', 'libcrypto-3.dll',
-    '_socket.pyd', '_ssl.pyd', '_hashlib.pyd', 'unicodedata.pyd', 'select.pyd',
-    'LICENSE.txt'
-)
-foreach ($name in $files) {
-    $from = Join-Path $seed $name
-    if (-not (Test-Path $from)) { throw "Missing from the seed interpreter: $name" }
-    Copy-Item $from (Join-Path $staged $name)
-}
-
-# The layer's code, inside the runtime's folder (see above).
-Copy-Item (Join-Path $sources '*.py') (Join-Path $staged 'netease_layer')
-Copy-Item (Join-Path $sources 'tests') (Join-Path $staged 'netease_layer\tests') -Recurse
-Get-ChildItem (Join-Path $staged 'netease_layer') -Recurse -Directory -Filter '__pycache__' |
+New-Item -ItemType Directory -Path $code -Force | Out-Null
+Copy-Item (Join-Path $sources '*.py') $code
+# The one file that starts it: embedded CPython ignores PYTHONPATH, so this puts the code on sys.path.
+Copy-Item (Join-Path $sources '_boot.py') (Join-Path $output '_boot.py')
+Copy-Item (Join-Path $sources 'tests') (Join-Path $code 'tests') -Recurse
+Get-ChildItem $code -Recurse -Directory -Filter '__pycache__' |
     Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
 
-# It must answer on its own, or the installer would ship a layer that never starts.
-Write-Host "  checking it starts..." -ForegroundColor Yellow
+# It must still answer, with the interpreter it will be lent at run time. QQ Music's is used here for
+# the same reason the host will: that is the one this layer runs on.
+$seeds = @(
+    (Join-Path $root 'app\qq-music-layer\python'),
+    'D:\WestPlay\qq-music-layer\python',
+    (Join-Path $env:LOCALAPPDATA 'WestPlay\qq-music-layer\python')
+)
+$python = $seeds | Where-Object { Test-Path (Join-Path $_ 'python.exe') } | Select-Object -First 1
+if (-not $python) {
+    throw ("No interpreter to check with (looked in: " + ($seeds -join '; ') + ")")
+}
+
+Write-Host "  checking it starts (with $python)..." -ForegroundColor Yellow
 $state = Join-Path $env:TEMP ("westplay-netease-" + [guid]::NewGuid().ToString('n'))
-$process = Start-Process -FilePath (Join-Path $staged 'python.exe') `
-    -ArgumentList '-m', 'netease_layer', '--port', '8797', '--state', $state `
-    -WorkingDirectory $staged -PassThru -WindowStyle Hidden `
+$process = Start-Process -FilePath (Join-Path $python 'python.exe') `
+    -ArgumentList (Join-Path $output '_boot.py'), '--port', '8797', '--state', $state `
+    -WorkingDirectory $output -PassThru -WindowStyle Hidden `
     -RedirectStandardOutput (Join-Path $env:TEMP 'westplay-netease.out') `
     -RedirectStandardError (Join-Path $env:TEMP 'westplay-netease.err')
 Start-Sleep -Seconds 5
@@ -90,4 +68,4 @@ if (-not $answered) {
 }
 
 $size = (Get-ChildItem $output -Recurse -File | Measure-Object -Property Length -Sum).Sum
-Write-Host ("  done: {0:N1} MB" -f ($size / 1MB)) -ForegroundColor Green
+Write-Host ("  done: {0:N0} KB" -f ($size / 1KB)) -ForegroundColor Green
