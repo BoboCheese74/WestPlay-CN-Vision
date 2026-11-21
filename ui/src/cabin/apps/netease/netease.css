@@ -234,18 +234,24 @@
   padding: 18px var(--ne-gutter) 14px;
 }
 
+/* The brand's own box, wider than the buttons beside it: its mark is 62 px (the drawn one it replaced
+   carried its own padding), so it needs the room without stretching the bar's other things. */
 .ne-app .ne-brand {
   flex: none;
-  width: var(--ne-height);
+  width: 66px;
   height: var(--ne-height);
   display: grid;
   place-items: center;
   color: var(--ne-red);
 }
 
-.ne-app .ne-brand svg {
-  width: 38px;
-  height: 38px;
+.ne-app .ne-brand svg,
+.ne-app .ne-brand img {
+  /* The mark is a picture now, not a glyph: it keeps its own colours. Bigger than the drawn one it
+     replaced, which left a ring of empty space around itself (owner 2026-11-21: 有点小). */
+  width: 62px;
+  height: 62px;
+  object-fit: contain;
 }
 
 .ne-app .ne-round {

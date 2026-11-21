@@ -8,7 +8,6 @@ import {
   BackGlyph,
   ChartsGlyph,
   MineGlyph,
-  NeteaseGlyph,
   PlaylistGlyph,
   RecommendGlyph,
 } from './glyphs'
@@ -106,7 +105,9 @@ export function NeteaseApp() {
           </button>
         ) : (
           <span className="ne-brand" aria-hidden="true">
-            <NeteaseGlyph />
+            {/* The service's own mark (a transparent PNG), rather than a drawn one: at 38 px the drawn
+                note was a rough approximation of a logo everyone recognises. */}
+            <img src="/icons/westplay/netease-logo.png" alt="" draggable={false} />
           </span>
         )}
         <nav className={typing ? 'ne-tabs away' : 'ne-tabs'} aria-hidden={typing}>
