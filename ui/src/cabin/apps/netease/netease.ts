@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { create } from 'zustand'
+import type { AppleMusicItem, AppleMusicTrack } from '../../../shared/host'
 import * as audio from './audio'
 import {
   type Account,
@@ -853,6 +854,48 @@ export function useLoad<T>(question: Question<T>): { data: T | null; failed: boo
 }
 
 // --- The Dashboard's Now Playing --------------------------------------------------------------------------
+// --- The Music app's shapes -------------------------------------------------------
+//
+// `music/parts.tsx` draws covers, song rows and shelves from `AppleMusicTrack` and `AppleMusicItem`:
+// the very pieces QQ Music and Apple Music share. NetEase's own `Song` says the same things with other
+// names (a list of artists, a picture, milliseconds), so they are mapped here rather than making a
+// second set of components that merely look similar.
+
+/** A NetEase song as the shared rows take it. */
+export function asTrack(song: Song): AppleMusicTrack {
+  return {
+    id: String(song.id),
+    name: song.name,
+    artist: song.artists.join(' / '),
+    album: song.album,
+    albumId: song.albumId ? String(song.albumId) : null,
+    artistId: song.artistIds.length > 0 ? String(song.artistIds[0]) : null,
+    image: song.picture || null,
+    // The cover's own colour, where the row draws one in a colour (`music/look.ts`).
+    color: '#2c2c2e',
+    duration: Math.round(song.duration / 1000),
+    explicit: false,
+    number: null,
+  }
+}
+
+/** A NetEase playlist or album as the shared cards take it. */
+export function asItem(collection: Collection): AppleMusicItem {
+  return {
+    id: String(collection.id),
+    kind: collection.kind,
+    name: collection.name,
+    by: collection.artist ?? collection.creator ?? '',
+    note: collection.description ?? '',
+    image: collection.picture || null,
+    wide: null,
+    color: '#2c2c2e',
+    explicit: false,
+    live: false,
+  }
+}
+
+
 
 /**
  * What NetEase Cloud Music plays, as the Dashboard's Now Playing takes music, and its cover; `null` while

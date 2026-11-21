@@ -1,8 +1,17 @@
 import { type ReactNode, useEffect, useState } from 'react'
 import { useKeyboard } from '../../keyboard/store'
+
+
 import { useText } from '../../state/text'
 import { Mine } from './account'
-import { BackGlyph, ChartsGlyph, MineGlyph, NeteaseGlyph, PlaylistGlyph, RecommendGlyph } from './glyphs'
+import {
+  BackGlyph,
+  ChartsGlyph,
+  MineGlyph,
+  NeteaseGlyph,
+  PlaylistGlyph,
+  RecommendGlyph,
+} from './glyphs'
 import { followLayerPort } from './layer'
 import { MiniPlayer, NowPlaying } from './NowPlaying'
 import {
@@ -19,6 +28,11 @@ import {
 } from './netease'
 import { Channels, FIELD, Page, Playlists, Recommend, SearchField, Typing } from './pages'
 import { WORDS } from './words'
+// The Music app's own styles: the pieces NetEase's cards and rows are drawn with now (`music/parts.tsx`)
+// are styled there, and QQ Music imports these two for the same reason. NetEase's own sheet comes last,
+// so its page layout still wins where the two name the same thing.
+import '../music/music.css'
+import '../music/appleMusic.css'
 import './netease.css'
 
 /** The tabs' own glyphs, over their words. */
@@ -78,8 +92,13 @@ export function NeteaseApp() {
   }
   const pages = views[tab]
 
+
   return (
-    <section className="app-panel ne-app" aria-label={text.apps.spotify}>
+    <>
+    <section className="app-panel ne-app am-app" aria-label={text.apps.spotify}>
+      {/* NetEase's own bar (not QQ Music's floating capsule): the brand, the four tabs and the search
+          field in one row. The tab has to be visible at a glance here, and a fixed row reads faster than a
+          capsule that slides. */}
       <div className="ne-top">
         {pages.length > 0 && !typing ? (
           <button type="button" className="ne-round" aria-label={WORDS.back} onClick={goBack}>
@@ -111,7 +130,7 @@ export function NeteaseApp() {
       </div>
       {/* Layers, each kept as it is under the one over it (a tab left, or a page gone back from, is found as it
           was, its scroll and all): each tab's own page, the pages over it, then what's typed. */}
-      <div className="ne-body">
+      <div className="am-body">
         {TABS.map((each) => (
           <TabLayers key={each} tab={each} shown={each === tab && !typing} />
         ))}
@@ -124,8 +143,9 @@ export function NeteaseApp() {
       {/* What floats at the foot steps aside for the keyboard. */}
       <MiniPlayer aside={typing} />
       <UnsungNote />
-      <NowPlaying />
     </section>
+    <NowPlaying />
+    </>
   )
 }
 

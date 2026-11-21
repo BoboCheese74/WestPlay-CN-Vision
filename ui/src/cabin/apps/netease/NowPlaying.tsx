@@ -1,21 +1,22 @@
 import { type CSSProperties, type PointerEvent, useEffect, useRef, useState } from 'react'
+import { HeartGlyph, VolumeGlyph } from './glyphs'
+// Sized glyphs come from the Music app's own set: NetEase's take no size, and Now Playing's buttons are
+// drawn at 36 to 72 px (as QQ Music's are).
 import {
-  DownGlyph,
-  HeartGlyph,
+  ChevronDownGlyph,
   LyricsGlyph,
   NextGlyph,
+  NoteGlyph,
   PauseGlyph,
   PlayGlyph,
   PreviousGlyph,
   QueueGlyph,
   RepeatGlyph,
+  RepeatOneGlyph,
   ShuffleGlyph,
-  VolumeGlyph,
-} from './glyphs'
+} from '../music/glyphs'
+import { Cover } from '../music/parts'
 import { Crossfade } from '../music/Crossfade'
-import { songCover } from './look'
-import { coverColour, hueOf, tintOf, washFrom } from './look'
-import { useWordsOver } from '../music/contrast'
 import { lineAt, type Words } from './lyrics'
 import {
   currentTrack,
@@ -35,9 +36,13 @@ import {
   useNetease,
   useWords,
 } from './netease'
-import { Cover } from './parts'
 import { clock } from './time'
 import { WORDS } from './words'
+
+/** A song's cover in the Music app's shape (its `Cover` takes `image`, not `picture`). */
+function coverOf(song: Song): { name: string; kind: 'album'; image: string | null; color: string } {
+  return { name: song.album || song.name, kind: 'album', image: song.picture || null, color: '#2c2c2e' }
+}
 
 /** The app's player: the bar at the foot of the app, and Now Playing over it. */
 
@@ -48,91 +53,72 @@ import { WORDS } from './words'
 export function MiniPlayer({ aside }: { aside: boolean }) {
   const playback = useNetease((state) => state.playback)
   const open = useNetease((state) => state.nowPlaying)
-  useTicker(playback?.playing ?? false)
+  const now = useNow(playback?.playing ?? false)
   const track = currentTrack(playback)
+  const away = open || aside
   if (!playback || !track) return null
-  const share = playback.duration > 0 ? positionOf(playback) / playback.duration : 0
+  const share = playback.duration > 0 ? positionOf(playback, now) / playback.duration : 0
   return (
     <div
-      className={open || aside ? 'ne-mini away' : 'ne-mini'}
+      className={`am-mini glass${away ? ' away' : ''}`}
       role="button"
       tabIndex={0}
       aria-label={WORDS.nowPlaying}
       onClick={() => useNetease.setState({ nowPlaying: true })}
     >
-      <Cover item={songCover(track)} className="ne-mini-cover" />
-      <span className="ne-mini-text">
-        <span className="ne-mini-name">{track.name}</span>
-        <span className="ne-mini-artists">{track.artists.join(' / ')}</span>
+      <Cover key={track.id} item={coverOf(track)} className="am-mini-cover" />
+      <span className="am-mini-text">
+        <span className="am-mini-name">{track.name}</span>
+        <span className="am-mini-by">{track.artists.join(' / ')}</span>
       </span>
       <button
         type="button"
-        className="ne-mini-play"
+        className="am-mini-button"
         aria-label={playback.playing ? WORDS.pause : WORDS.play}
         onClick={(event) => {
           event.stopPropagation()
           playOrPause()
         }}
       >
-        {playback.playing ? <PauseGlyph /> : <PlayGlyph />}
+        {playback.playing ? <PauseGlyph size={36} /> : <PlayGlyph size={36} />}
       </button>
-      <span className="ne-mini-time" style={{ '--share': share } as CSSProperties} />
+      <button
+        type="button"
+        className="am-mini-button"
+        aria-label={WORDS.next}
+        onClick={(event) => {
+          event.stopPropagation()
+          skip(1)
+        }}
+      >
+        <NextGlyph size={38} />
+      </button>
+      <span
+        className={playback.sound === 'loading' ? 'am-mini-time loading' : 'am-mini-time'}
+        style={{ '--share': share } as CSSProperties}
+      />
     </div>
   )
 }
 
-/**
- * Now Playing, over the app (it rises from the bar): washed in the song's colour, its cover large — or its words,
- * or the queue, in the cover's place — its names, the time, and NetEase's own controls, shuffle and repeat lit
- * while they're on.
- */
-/** A song that isn't one: what the wash reads before anything plays (it draws nothing). */
-const EMPTY_SONG: Song = {
-  id: 0,
-  name: '',
-  artists: [],
-  artistIds: [],
-  album: '',
-  albumId: 0,
-  picture: '',
-  duration: 0,
-  fee: null,
+/** The moment the bar draws at: `performance.now()` while a song plays, so the bar keeps moving between
+ * the element's own `timeupdate`s (QQ Music's, the same). */
+function useNow(running: boolean): number {
+  const [now, setNow] = useState(() => performance.now())
+  useEffect(() => {
+    if (!running) return
+    const timer = setInterval(() => setNow(performance.now()), 250)
+    return () => clearInterval(timer)
+  }, [running])
+  return now
 }
 
-/**
- * The wash Now Playing is drawn in: the song's cover's own colour, read once per picture (`coverColour`) and
- * kept for as long as that picture is what plays. The song's name gives the hue until the cover answers (and
- * where it can't be read at all), so the page is never a flash of the wrong colour.
- */
-function useWash(track: Song): string {
-  const [wash, setWash] = useState<string>(() => tintOf(track.name, track.id))
-  useEffect(() => {
-    const fallback = hueOf(track.name, track.id)
-    setWash(`hsl(${fallback} 38% 30%)`)
-    let current = true
-    // A cover the layer didn't send (a song with no picture): the name's own colour stands.
-    if (!track.picture) return () => {
-      current = false
-    }
-    void coverColour(track.picture).then((colour) => {
-      if (current) setWash(washFrom(colour, hueOf(track.name, track.id)))
-    })
-    return () => {
-      current = false
-    }
-  }, [track.picture, track.name, track.id])
-  return wash
-}
 
 /**
  * What the words sit on in this page (the shape `wordsOver` takes): the blurred cover, faint under the wash
  * the page paints over it. The cover's own share of the colour is small there, so a pale one still reads light
  * enough to want dark words.
  */
-const BACKDROP = {
-  light: { cover: 0.22, rest: [236, 232, 236] as [number, number, number] },
-  dark: { cover: 0.22, rest: [232, 228, 232] as [number, number, number] },
-}
 
 export function NowPlaying() {
   const open = useNetease((state) => state.nowPlaying)
@@ -141,13 +127,6 @@ export function NowPlaying() {
   const playback = useNetease((state) => state.playback)
   const track = currentTrack(playback)
   useTicker(playback?.playing ?? false)
-  // The cover's own colour, as the page's wash (reading the picture is a hook: it runs whether or not the
-  // sheet is open, so it's already read the moment it is).
-  const wash = useWash(track ?? EMPTY_SONG)
-  // Whether the words should be dark here, read off the cover the way the cursor and Apple Music's glass do:
-  // a pale cover takes dark words (owner 2026-11-20 — white ones were lost on it). The page shows its words
-  // over the blurred cover under a dark wash, so that veil is what they sit on.
-  const words = useWordsOver(track?.picture ?? null, 'light', BACKDROP)
   if (!playback || !track) return null
   const close = () => useNetease.setState({ nowPlaying: false })
   const toArtist = () => {
@@ -155,153 +134,135 @@ export function NowPlaying() {
     openSongArtist(track)
   }
   return (
-    <div
-      className={open ? 'ne-now open' : 'ne-now'}
-      style={{ '--song': wash } as CSSProperties}
-      data-words={words}
-      aria-hidden={!open}
-    >
-      {/* The cover itself, blown up and blurred under a dark wash: the page's colour comes from the song,
-          which is what QQ Music's Now Playing does (`music-backdrop`). The flat gradient alone gave the
-          words nothing to sit on and read as one colour filling the box. */}
+    <div className={open ? 'am-now ne-app open' : 'am-now ne-app'} aria-hidden={!open}>
       <Crossfade
         value={track.picture}
-        className="music-backdrop ne-backdrop"
+        className="music-backdrop"
         render={(url) => url && <img src={url} alt="" />}
       />
-      <div className="ne-now-head">
-        <button type="button" className="ne-icon" aria-label={WORDS.close} onClick={close}>
-          <DownGlyph />
-        </button>
-        <div className="ne-now-from">
-          {playback.context && (
-            <>
-              <span>{WORDS.playingFrom}</span>
-              <b>{playback.context.name}</b>
-            </>
-          )}
-        </div>
-        <div className="ne-now-tools">
-          <LikeButton song={track} />
-          <button
-            type="button"
-            className={showLyrics ? 'ne-icon on' : 'ne-icon'}
-            aria-label={WORDS.lyrics}
-            aria-pressed={showLyrics}
-            onClick={() => useNetease.setState({ lyrics: !showLyrics, queue: false })}
-          >
-            <LyricsGlyph />
-          </button>
-          <button
-            type="button"
-            className={showQueue ? 'ne-icon on' : 'ne-icon'}
-            aria-label={WORDS.queue}
-            aria-pressed={showQueue}
-            onClick={() => useNetease.setState({ queue: !showQueue, lyrics: false })}
-          >
-            <QueueGlyph />
-          </button>
-        </div>
-      </div>
-
-      <div className="ne-now-body">
-        <div className="ne-now-side">
-          <div className="ne-now-text">
-            <span key={track.id} className="ne-now-name">
-              {track.name}
-            </span>
-            <span className="ne-now-artists">
-              {track.artists.map((artist, i) => (
-                <span key={`${artist}:${i}`}>
-                  {i > 0 && ' / '}
-                  {i === 0 && track.artistIds.length > 0 ? (
-                    <button type="button" onClick={toArtist}>
-                      {artist}
-                    </button>
-                  ) : (
-                    artist
-                  )}
-                </span>
-              ))}
-            </span>
-            {track.album && (
+      <section className="app-panel music-app am-now-panel" aria-label={WORDS.nowPlaying}>
+        <div className="music-layout">
+          <div className="music-header">
+            <button type="button" className="music-corner glass" aria-label={WORDS.close} onClick={close}>
+              <ChevronDownGlyph size={34} />
+            </button>
+            <div className="am-corners">
+              <LikeButton song={track} />
               <button
                 type="button"
-                className="ne-now-album"
-                onClick={() => {
-                  close()
-                  openSongAlbum(track)
-                }}
+                className={showLyrics ? 'music-corner glass am-on' : 'music-corner glass'}
+                aria-label={WORDS.lyrics}
+                aria-pressed={showLyrics}
+                onClick={() => useNetease.setState({ lyrics: !showLyrics, queue: false })}
               >
-                {track.album}
+                <LyricsGlyph size={32} />
               </button>
-            )}
+              <button
+                type="button"
+                className={showQueue ? 'music-corner glass am-on' : 'music-corner glass'}
+                aria-label={WORDS.queue}
+                aria-pressed={showQueue}
+                onClick={() => useNetease.setState({ queue: !showQueue, lyrics: false })}
+              >
+                <QueueGlyph size={32} />
+              </button>
+            </div>
           </div>
-        </div>
 
-        {/* The square, as QQ Music has it: the cover, the words, or the queue — the same box either way,
-            so switching between them doesn't move the page around. */}
-        <div className="ne-now-art">
+          <div className="music-info">
+            <div className="am-now-text">
+              <span className="music-title">{track.name}</span>
+              <span className="music-artist">
+                {track.artists.map((artist, i) => (
+                  <span key={`${artist}:${i}`}>
+                    {i > 0 && ' / '}
+                    {i === 0 && track.artistIds.length > 0 ? (
+                      <button type="button" onClick={toArtist}>
+                        {artist}
+                      </button>
+                    ) : (
+                      artist
+                    )}
+                  </span>
+                ))}
+              </span>
+              {track.album && (
+                <button
+                  type="button"
+                  className="music-album"
+                  onClick={() => {
+                    close()
+                    openSongAlbum(track)
+                  }}
+                >
+                  {track.album}
+                </button>
+              )}
+            </div>
+
+            <div className="music-controls">
+              <button type="button" className="music-button" aria-label={WORDS.previous} onClick={() => skip(-1)}>
+                <PreviousGlyph size={54} />
+              </button>
+              <button
+                type="button"
+                className="music-button primary"
+                aria-label={playback.playing ? WORDS.pause : WORDS.play}
+                onClick={() => playOrPause()}
+              >
+                {playback.playing ? <PauseGlyph size={72} /> : <PlayGlyph size={72} />}
+              </button>
+              <button type="button" className="music-button" aria-label={WORDS.next} onClick={() => skip(1)}>
+                <NextGlyph size={54} />
+              </button>
+            </div>
+          </div>
+
           {showQueue ? (
             <Queue playback={playback} />
           ) : showLyrics ? (
             <Words song={track} playback={playback} />
           ) : (
-            <Cover key={track.id} item={songCover(track)} className="ne-now-cover" />
+            <div className="music-art">
+              {track.picture ? (
+                <img src={track.picture} alt="" />
+              ) : (
+                <div className="music-art-placeholder am-art-drawn" aria-hidden>
+                  <NoteGlyph size={72} />
+                </div>
+              )}
+            </div>
           )}
-        </div>
-      </div>
 
-      <div className="ne-now-foot">
-        {playback.sound === 'unplayable' ? <NoRight song={track} /> : <Progress playback={playback} />}
-        <div className="ne-now-row">
-          <div className="ne-controls">
+          {playback.sound === 'unplayable' ? <NoRight song={track} /> : <Progress playback={playback} />}
+
+          <div className="music-extras am-extras">
             <button
               type="button"
-              className={playback.shuffle ? 'ne-control on' : 'ne-control'}
+              className={playback.shuffle ? 'music-button small active' : 'music-button small'}
               aria-label={WORDS.shuffle}
               aria-pressed={playback.shuffle}
               onClick={toggleShuffle}
             >
-              <ShuffleGlyph />
-            </button>
-            <button type="button" className="ne-control big" aria-label={WORDS.previous} onClick={() => skip(-1)}>
-              <PreviousGlyph />
+              <ShuffleGlyph size={36} />
             </button>
             <button
               type="button"
-              className="ne-control ne-now-play"
-              aria-label={playback.playing ? WORDS.pause : WORDS.play}
-              onClick={() => playOrPause()}
-            >
-              {playback.playing ? <PauseGlyph /> : <PlayGlyph />}
-            </button>
-            <button type="button" className="ne-control big" aria-label={WORDS.next} onClick={() => skip(1)}>
-              <NextGlyph />
-            </button>
-            <button
-              type="button"
-              className={playback.repeat !== 'off' ? 'ne-control on' : 'ne-control'}
+              className={playback.repeat !== 'off' ? 'music-button small active' : 'music-button small'}
               aria-label={WORDS.repeat}
               aria-pressed={playback.repeat !== 'off'}
               onClick={cycleRepeat}
             >
-              <RepeatGlyph one={playback.repeat === 'one'} />
+              {playback.repeat === 'one' ? <RepeatOneGlyph size={36} /> : <RepeatGlyph size={36} />}
             </button>
+            <Volume />
           </div>
-          {/* Beside the controls, at their right: short enough not to take the row (owner 2026-11-20). */}
-          <Volume />
         </div>
-      </div>
+      </section>
     </div>
   )
 }
 
-/**
- * 收藏: the heart on the song playing, filled once it's in 我喜欢的音乐 and lighting as it's pressed. Pressed
- * again, the song comes back out. Not signed in, it's there but inert (a guest has no 我喜欢的音乐 to put a
- * song in), and it says so rather than looking broken.
- */
 function LikeButton({ song }: { song: Song }) {
   const signedIn = useNetease((state) => state.account?.signedIn === true)
   const liked = useNetease((state) => state.liked?.includes(song.id) === true)
@@ -451,16 +412,14 @@ function Words({ song, playback }: { song: Song; playback: Playback }) {
   const asked = useWords(song.id)
   if (asked.failed) {
     return (
-      <div className="ne-lyrics-card note">
-        <p>{WORDS.lyricsFailed}</p>
-      </div>
+      <div className="am-lyrics-box"><p className="am-lyrics-none">
+{WORDS.lyricsFailed}</p></div>
     )
   }
   if (!asked.words) {
     return (
-      <div className="ne-lyrics-card note">
-        <p>{WORDS.noLyrics}</p>
-      </div>
+      <div className="am-lyrics-box"><p className="am-lyrics-none">
+{WORDS.noLyrics}</p></div>
     )
   }
   return (
@@ -498,7 +457,7 @@ function LyricLines({ words, position, onSeek }: { words: Words; position: numbe
     held.current = performance.now() + HELD
   }
   return (
-    <div ref={box} className="ne-lyrics" onWheel={hold} onPointerDown={hold}>
+    <div className="am-lyrics-box"><div ref={box} className="am-lyrics" onWheel={hold} onPointerDown={hold}>
       {!words.synced && <p className="ne-lyrics-note">{WORDS.lyricsPlain}</p>}
       {words.lines.map((line, index) => {
         const state = !words.synced ? '' : index === current ? ' now' : index < current ? ' sung' : ''
@@ -527,6 +486,7 @@ function LyricLines({ words, position, onSeek }: { words: Words; position: numbe
         )
       })}
     </div>
+    </div>
   )
 }
 
@@ -554,7 +514,7 @@ function QueueRow({ song, current = false, onPlay }: { song: Song; current?: boo
       onClick={onPlay}
       disabled={current}
     >
-      <Cover item={songCover(song)} />
+      <Cover item={coverOf(song)} />
       <span className="ne-queue-text">
         <span className="ne-queue-name">{song.name}</span>
         <span className="ne-queue-artists">{song.artists.join(' / ')}</span>

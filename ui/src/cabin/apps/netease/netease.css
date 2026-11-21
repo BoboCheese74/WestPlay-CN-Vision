@@ -71,7 +71,11 @@
   overflow: hidden;
   display: flex;
   flex-direction: column;
-  container-type: size;
+  /* `size` made this a container in both axes: the pages inside (`appleMusic.css`'s `.am-layer`,
+     `position: absolute; inset: 0`) then had nothing to size against and drew from the panel's top, under
+     the bar. `inline-size` keeps the container queries working (`@container carplay`) and lets the rows
+     take their height from the panel. */
+  container-type: inline-size;
 }
 
 /* The cab's light appearance: NetEase's app drawn light, its red kept (a little deeper, to read on white). */
@@ -225,6 +229,8 @@
   display: flex;
   align-items: center;
   gap: 16px;
+  /* Its own row, never squeezed by the pages below it (they take the height that's left). */
+  flex: none;
   padding: 18px var(--ne-gutter) 14px;
 }
 
@@ -1395,6 +1401,9 @@
 .ne-app .ne-now-text {
   flex: 1;
   min-width: 0;
+  /* Never wider than its column: a film song's whole credit used to run out of its box and over the
+     words beside it (owner 2026-11-21). */
+  max-width: 100%;
   display: flex;
   flex-direction: column;
   /* Centred, as QQ Music's `.music-info` is: the name, the artist and the album stack in the middle of
@@ -1429,6 +1438,11 @@
   font-size: calc(32px * var(--text-scale, 1));
   font-weight: 600;
   color: var(--ne-ink-dim);
+  /* One line, cut with an ellipsis: a film's song credits a whole row of performers. */
+  max-width: 100%;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 .ne-app .ne-now-artists button {
@@ -1442,6 +1456,11 @@
   font-size: calc(24px * var(--text-scale, 1));
   font-weight: 550;
   color: var(--ne-ink-dim);
+  /* An album's name can be a whole soundtrack's: one line, then an ellipsis. */
+  max-width: 100%;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
   text-decoration: underline;
   text-underline-offset: 3px;
   text-decoration-color: rgb(255 255 255 / 0.28);
@@ -1675,7 +1694,7 @@
    album cover, `look.ts`), and the words' card shows that colour plainly rather than dulling it behind a black
    veil — the cover's colour is the background, and it changes with the album (the owner's 2026-11-20 ask). The
    wash is made dark enough for white words already (`washFrom`), so nothing more needs to sit over it. */
-.ne-app .ne-lyrics {
+.ne-app :is(.ne-lyrics, .am-lyrics) {
   position: relative;
   /* As wide as Up Next, faded at the top and bottom as they scroll: Apple Music's own column
      (`.am-lyrics` above), which is the shape the words are written for. */
@@ -1690,7 +1709,9 @@
   background: transparent;
   text-shadow: 0 2px 12px rgb(0 0 0 / 0.55);
   /* Room under the last line to bring it up to where the line sung is kept. */
-  padding: 24px 6px 40cqh 0;
+  /* Room under the last line to bring it up to where the line sung is kept: the full-screen panel's
+     own height (40%/2), as the panel is the viewport there. */
+  padding: 24px 6px 20% 0;
   mask-image: linear-gradient(to bottom, transparent, #000 9%, #000 82%, transparent);
 }
 
@@ -1718,7 +1739,9 @@
 }
 
 .ne-app .ne-lyric.sung {
-  color: var(--ne-lyric-sung);
+  /* The same ink as the rest, faint: `--ne-lyric-sung` is white, which a pale cover's dark ink is not. */
+  color: var(--ne-ink);
+  opacity: 0.62;
 }
 
 /* The line being sung: larger, not merely tinted. From the driver's seat a 2% scale is invisible, so the size
@@ -1733,20 +1756,27 @@
 }
 
 .ne-app .ne-lyric-translation {
-  font-size: var(--ne-type-small);
+  /* Two thirds of the words' own size: at 12 px a translation under 34 px of words read as a footnote. */
+  font-size: calc(22px * var(--text-scale, 1));
   font-weight: 500;
-  color: var(--ne-lyric-dim);
+  line-height: 1.25;
+  margin-top: 2px;
+  /* Its line's ink, faint: the words turn dark over a pale cover (owner 2026-11-21). */
+  color: var(--ne-ink);
+  opacity: 0.66;
 }
 
 .ne-app .ne-lyric.now .ne-lyric-translation {
-  color: var(--ne-lyric-now-dim);
+  color: var(--ne-ink);
+  opacity: 0.85;
 }
 
 .ne-app .ne-lyrics-note {
   margin: 0 0 10px;
   font-size: var(--ne-type-small);
   font-weight: 600;
-  color: rgb(255 255 255 / 0.4);
+  color: var(--ne-ink);
+  opacity: 0.5;
 }
 
 /* The queue, where the cover was. */
@@ -2156,4 +2186,23 @@
   50% {
     opacity: 0.45;
   }
+}
+
+/* NetEase's bar is a solid row (`.ne-top`), not QQ Music's floating capsule: `appleMusic.css` pulls the
+   Music app's pages up under its own float, which here left the first row behind the bar (owner
+   2026-11-21: 顶栏遮挡下面的内容). The pages start below this bar instead. */
+/* NetEase's bar is a solid row (`.ne-top`), not QQ Music's floating capsule: `appleMusic.css` pulls the
+   Music app's pages up under its own float (a negative top margin), and it also assumes the bar is a
+   sibling with no height of its own. Here the bar takes its room and the pages start under it. */
+/* Three classes, to match `appleMusic.css`'s `.shell .am-app .am-body` (a negative top margin that pulls
+   the Music app's pages up under its floating capsule): at two classes this rule lost to it and the pages
+   kept sliding under NetEase's own solid bar (owner 2026-11-21: 顶栏遮挡下面的内容). */
+.shell .ne-app .am-body {
+  margin-top: 0;
+  /* Its layers are absolutely placed against it (`appleMusic.css` `.am-layer`), so it needs a height of its
+     own: `flex: 1` alone let it collapse and the pages drew from the top of the panel. */
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
 }
