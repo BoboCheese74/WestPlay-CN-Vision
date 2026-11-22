@@ -480,7 +480,18 @@ fn look_at_game_mods(game: &Game, looked: &mut HashMap<PathBuf, ModsStamp>) {
         let made = game_mod::build(&files, &mod_trucks, &marks).map_err(|error| error.to_string());
         let made = made.and_then(|(bytes, built)| {
             let dir = ours.parent().ok_or("no folder")?;
-            game_mod::install(&bytes, dir, game.kind).map_err(|error| error.to_string())?;
+            // The MAN TGX 2020's screen script under a name of WestPlay's own, and the interior pointed at
+            // it: the DLC is mounted before the mod, so its own script of that name is the one the game
+            // reads (see `game_mod::man_extra`). Its DLC is free and in every install, so a file of it
+            // missing is said — the mod is still written, without it, rather than nothing installed.
+            let extra = match game_mod::man_extra(&files) {
+                Ok(extra) => extra,
+                Err(problem) => {
+                    log!("setup: the MAN TGX 2020's screen not WestPlay's: {problem}");
+                    Vec::new()
+                }
+            };
+            game_mod::install_with(&bytes, &extra, dir, game.kind).map_err(|error| error.to_string())?;
             Ok(built)
         });
         let built = match made {
@@ -573,7 +584,17 @@ fn install_mod(game: &Game) -> Result<(), String> {
     }
     let ours = places::westplay_documents().ok_or("noDocuments")?;
     log!("setup: the mod: written into {}", ours.display());
-    game_mod::install(&bytes, &ours, game.kind).map_err(|e| format!("Couldn't write the mod: {e}"))?;
+    // The MAN TGX 2020's screen under a name of WestPlay's own (see `game_mod::man_extra`). Its DLC is free
+    // and in every install: a file of it missing is said, and the mod written without it.
+    let extra = match GameFiles::install(&game.dir).map_err(|e| e.to_string()).and_then(|files| game_mod::man_extra(&files)) {
+        Ok(extra) => extra,
+        Err(problem) => {
+            log!("setup: the MAN TGX 2020's screen not WestPlay's: {problem}");
+            Vec::new()
+        }
+    };
+    game_mod::install_with(&bytes, &extra, &ours, game.kind)
+        .map_err(|e| format!("Couldn't write the mod: {e}"))?;
     tablet::write_apart(&apart, &ours, game.kind).map_err(|e| format!("Couldn't write the mod: {e}"))?;
     if let Some(documents) = places::game_documents(game.kind) {
         log!("setup: the mod: WestPlay 1.2's old copy taken out of the game's mods and profiles");

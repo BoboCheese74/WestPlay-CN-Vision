@@ -46,9 +46,7 @@
       "icons/icon.ico"
     ],
     "resources": {
-      "../ui/dist/": "ui/",
-      "../assets/westplay.scs": "westplay.scs",
-      "../netease-layer/": "netease-layer/"
+      "../ui/dist/icons/westplay/bilibili.dark.svg": "ui/icons/westplay/bilibili.dark.svg"
     },
     "windows": {
       "nsis": {

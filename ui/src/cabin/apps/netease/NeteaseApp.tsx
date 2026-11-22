@@ -107,7 +107,7 @@ export function NeteaseApp() {
           <span className="ne-brand" aria-hidden="true">
             {/* The service's own mark (a transparent PNG), rather than a drawn one: at 38 px the drawn
                 note was a rough approximation of a logo everyone recognises. */}
-            <img src="/icons/westplay/netease-logo.png" alt="" draggable={false} />
+            <img src="/icons/westplay/netease-mark.png" alt="" draggable={false} />
           </span>
         )}
         <nav className={typing ? 'ne-tabs away' : 'ne-tabs'} aria-hidden={typing}>

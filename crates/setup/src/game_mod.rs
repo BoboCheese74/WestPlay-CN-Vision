@@ -500,6 +500,54 @@ pub fn game_screens_current(game: &GameFiles, built: &Path) -> bool {
     BUS_SCREENS.iter().all(|&(path, _)| same(path, sized.iter().find(|(at, _)| at == path).map(|(_, bytes)| bytes)))
 }
 
+/// The MAN TGX 2020's own screen script, and the interior that asks for it, patched: `(path, bytes)`
+/// pairs to write beside the mod's own files ([`install_with`]).
+///
+/// The DLC is mounted before the mod, so its `ui/dashboard/man_tgx_2020_gps.sii` is the one the game reads
+/// whatever the mod changes of the same name: it kept its own picture and WestPlay's never showed (owner
+/// 2026-11-14, and the reason `patch_man.rs` was written). Under a name of WestPlay's own it can't lose,
+/// and the interior is pointed at that instead.
+///
+/// The DLC is free and in every install (it is how SCS ships the truck), so a file of it missing is
+/// something wrong with the game rather than a copy of it to leave alone: asked plainly instead of
+/// quietly giving up, which is what left the screen the game's own.
+pub fn man_extra(game: &GameFiles) -> Result<Vec<(String, Vec<u8>)>, String> {
+    const SCRIPT: &str = "ui/dashboard/man_tgx_2020_gps.sii";
+    const OURS: &str = "ui/dashboard/westplay_man_tgx_2020_gps.sii";
+    const INTERIOR: &str = "def/vehicle/truck/man.tgx_2020/interior/computers.sui";
+    const ASKS: &str = "gps_path: \"/ui/dashboard/man_tgx_2020_gps.sii\"";
+    const OURS_ASKS: &str = "gps_path: \"/ui/dashboard/westplay_man_tgx_2020_gps.sii\"";
+
+    let read = |path: &str| -> Result<Vec<u8>, String> {
+        game.read(path)
+            .map_err(|error| format!("{path}: {error}"))?
+            .ok_or_else(|| format!("{path}: the game doesn't have it"))
+    };
+    let script = String::from_utf8(read(SCRIPT)?)
+        .map_err(|_| format!("{SCRIPT}: not UTF-8 text"))?;
+    let interior = String::from_utf8(read(INTERIOR)?)
+        .map_err(|_| format!("{INTERIOR}: not UTF-8 text"))?;
+    if !interior.contains(ASKS) {
+        // A game that names another screen there: said, not guessed at, so it gets looked at.
+        return Err(format!("{INTERIOR}: doesn't ask for {SCRIPT}"));
+    }
+    let layout = screen_layouts()
+        .iter()
+        .position(|layout| layout.id == "man-tgx-2020")
+        .ok_or("screen_layouts.txt: no man-tgx-2020")?;
+    let patched = patch_gps_script(
+        &script,
+        &texture_name(&screen_layouts()[layout]),
+        None,
+        ScreenLayout::texture_height(layout),
+        screen_pages("man-tgx-2020"),
+    )?;
+    Ok(vec![
+        (OURS.to_owned(), patched.into_bytes()),
+        (INTERIOR.to_owned(), interior.replace(ASKS, OURS_ASKS).into_bytes()),
+    ])
+}
+
 /// Writes the mod into `mod_dir` (WestPlay's own folder), replacing the one there whole: written beside it
 /// first, then moved over it, so the plugin never finds half a file.
 /// A step that failed names itself and its path (`writing C:\…\WestPlay\westplay.scs.partial: …`), so a
@@ -1185,6 +1233,45 @@ mod tests {
         assert!(patched.contains(placed), "{patched}");
         // The group itself keeps its coordinates.
         assert!(patched.contains(" coords_r: 256\n coords_t: 256\n coords_b: 0\n id: 100\n"));
+    }
+
+    #[test]
+    fn the_man_truck_gets_its_script_under_our_name_and_the_interior_points_at_it() {
+        // The DLC is mounted before the mod, so its own `man_tgx_2020_gps.sii` is what the game reads:
+        // WestPlay's has to live under a name of its own, and the interior has to ask for that.
+        let root = std::env::temp_dir().join(format!("westplay-man-extra-{}", std::process::id()));
+        let dashboard = root.join("ui/dashboard");
+        let interior = root.join("def/vehicle/truck/man.tgx_2020/interior");
+        std::fs::create_dir_all(&dashboard).unwrap();
+        std::fs::create_dir_all(&interior).unwrap();
+        let files = GameFiles::new(vec![westplay_mapdata::files::Mount::Folder(root.clone())]);
+        // Its DLC is free and in every install, so a file of it missing is a fault of the game's copy,
+        // said rather than skipped — skipping is what left the screen the game's own (owner 2026-11-22).
+        let missing = man_extra(&files).unwrap_err();
+        assert!(missing.contains("man_tgx_2020_gps.sii"), "names what's missing: {missing}");
+
+        // The real layout (the tests' own `SCRIPT`): a window and the "screen on" group, id 100.
+        std::fs::write(dashboard.join("man_tgx_2020_gps.sii"), SCRIPT).unwrap();
+        // The interior's screens file names the game's own script.
+        std::fs::write(
+            root.join("def/vehicle/truck/man.tgx_2020/interior/computers.sui"),
+            "SiiNunit\n{\nscreens : .man.tgx.2020.screens\n{\n\tgps_path: \"/ui/dashboard/man_tgx_2020_gps.sii\"\n}\n}\n",
+        )
+        .unwrap();
+
+        let extra = man_extra(&files).expect("the MAN TGX 2020's files, as the game has them");
+        assert_eq!(extra.len(), 2, "the script and the interior");
+        let ours = extra.iter().find(|(path, _)| path.ends_with("westplay_man_tgx_2020_gps.sii"));
+        assert!(ours.is_some(), "the script under WestPlay's own name");
+        let ours = &ours.unwrap().1;
+        assert!(String::from_utf8_lossy(ours).contains("screen_man_tgx_2020"), "the patched script's texture");
+        let asked = extra.iter().find(|(path, _)| path.contains("computers.sui"));
+        let text = String::from_utf8_lossy(&asked.unwrap().1);
+        assert!(
+            text.contains("gps_path: \"/ui/dashboard/westplay_man_tgx_2020_gps.sii\""),
+            "the interior points at the copy: {text}"
+        );
+        std::fs::remove_dir_all(&root).unwrap();
     }
 
     #[test]
