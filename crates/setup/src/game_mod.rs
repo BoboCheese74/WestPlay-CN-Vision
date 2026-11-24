@@ -121,6 +121,8 @@ const SHOWN_PARTS: &[(&str, ShownPart)] = &[
     // 1280 x 720, so its width is 540 x 16:9 = 960 units, 66.7% of the window: past that the frame
     // is stretched wide (5.6%, what read as squashed; owner 2026-11-13).
     ("man-tgx-2020", ShownPart { left: 0.0, right: 0.667, top: 0.0, bottom: 1.0 }),
+    // The Volvo 9700 DD's centre display leaves 0.32% of the surface out on each edge (interior `gps.tobj`).
+    ("volvo-9700-dd", ShownPart { left: 0.0032, right: 0.9968, top: 0.0032, bottom: 0.9968 }),
 ];
 
 /// A screen of the game's own whose script is a bare window (no "screen on" group): WestPlay's image goes on the part
@@ -1505,7 +1507,9 @@ mod tests {
             built
         };
         // Made without the Coaches DLC: as the game has its screens.
-        assert!(!make().patched.contains(&"man-lions-24"));
+        let without_coaches = make();
+        assert!(!without_coaches.patched.contains(&"man-lions-24"));
+        assert!(!without_coaches.patched.contains(&"volvo-9700-dd"));
         assert!(game_screens_current(&files, &out));
         // The DLC installed since (a player's, 2026-11-15): the MAN Lion's Coach's script and screens file.
         let write = |path: &str, text: &str| {
@@ -1526,12 +1530,31 @@ mod tests {
         let archive = westplay_mapdata::archive::Archive::open(&out).unwrap();
         let sized = String::from_utf8(archive.read(screens).unwrap().unwrap()).unwrap();
         assert!(sized.contains(BUS_SIZE), "{sized}");
+        drop(archive);
+
+        // An older mod can already support the MAN and still need the Volvo's factory screen added.
+        let volvo_script = "ui/dashboard/volvo_9700_23_gps.sii";
+        let volvo_screens = "def/vehicle/bus/volvo.9700_23/interior/computers.sui";
+        write(volvo_script, CAMERA_SCRIPT);
+        write(volvo_screens, &format!("\tgps_path: \"/{volvo_script}\"\n\t{BUS_SIZE}\n"));
+        assert!(!game_screens_current(&files, &out));
+        assert!(make().patched.contains(&"volvo-9700-dd"));
+        assert!(game_screens_current(&files, &out));
+        let archive = westplay_mapdata::archive::Archive::open(&out).unwrap();
+        let patched = String::from_utf8(archive.read(volvo_script).unwrap().unwrap()).unwrap();
+        assert!(patched.contains("screen_volvo_9700_dd.mat"));
+        assert!(patched.contains("_nameless.westplay.parking"));
+        assert!(archive.read(volvo_screens).unwrap().is_none());
+        drop(archive);
+
         // A game update changing a script: not as the game has it any more.
         write("ui/dashboard/man_lions_24_gps.sii", &CAMERA_SCRIPT.replace("layer: 5", "layer: 6"));
         assert!(!game_screens_current(&files, &out));
         // The DLC gone again: its screen in the mod is no longer the game's.
         std::fs::remove_file(root.join("ui/dashboard/man_lions_24_gps.sii")).unwrap();
         std::fs::remove_file(root.join(screens)).unwrap();
+        std::fs::remove_file(root.join(volvo_script)).unwrap();
+        std::fs::remove_file(root.join(volvo_screens)).unwrap();
         assert!(!game_screens_current(&files, &out));
         make();
         assert!(game_screens_current(&files, &out));

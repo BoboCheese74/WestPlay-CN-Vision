@@ -119,7 +119,7 @@ pub const TRUCKS: &[Truck] = &[
         source: Source::Mod(&["setra", "531"]),
         layout: Some("ob-gps"),
     },
-    // The Coaches DLC's buses whose real ones have CarPlay, WestPlay on their own screens (owner 2026-11-12).
+    // The Coaches DLC's buses, WestPlay on their own screens.
     Truck {
         id: "scania-touring",
         name: "Scania Touring",
@@ -131,6 +131,12 @@ pub const TRUCKS: &[Truck] = &[
         name: "MAN Lion's Coach (2024)",
         source: Source::Bus("man.lions_24"),
         layout: Some("man-lions-24"),
+    },
+    Truck {
+        id: "volvo-9700-dd",
+        name: "Volvo 9700 DD",
+        source: Source::Bus("volvo.9700_23"),
+        layout: Some("volvo-9700-dd"),
     },
     // Any other truck, with WestPlay's tablet on its dashboard (owner 2026-10-24).
     Truck {
@@ -272,18 +278,18 @@ mod tests {
     fn a_bus_is_found_among_the_games_buses() {
         let root = std::env::temp_dir().join(format!("westplay-trucks-buses-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
-        let dir = root.join("def/vehicle/bus/scania.touring_23");
-        std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(dir.join("data.sii"), "SiiNunit
-{
-}
-").unwrap();
+        for model in ["scania.touring_23", "volvo.9700_23"] {
+            let dir = root.join("def/vehicle/bus").join(model);
+            std::fs::create_dir_all(&dir).unwrap();
+            std::fs::write(dir.join("data.sii"), "SiiNunit\r\n{\r\n}\r\n").unwrap();
+        }
         let files = GameFiles::new(vec![Mount::Folder(root.clone())]);
-        let fits = fit(Kind::Ets2, &files, &["scania-touring", "man-lions-24"], &[], &[]);
+        let fits = fit(Kind::Ets2, &files, &["scania-touring", "man-lions-24", "volvo-9700-dd"], &[], &[]);
         let _ = std::fs::remove_dir_all(&root);
         let of = |id: &str| fits.iter().find(|(truck, _)| truck.id == id).unwrap().1;
-        // The Coaches DLC's Scania Touring, among the buses (not the trucks); its MAN not in this game.
+        // The Scania and Volvo are in the bus definitions; the MAN is absent from the fixture.
         assert_eq!(of("scania-touring"), Fit::Ready);
+        assert_eq!(of("volvo-9700-dd"), Fit::Ready);
         assert_eq!(of("man-lions-coach-2024"), Fit::NotInGame);
     }
 

@@ -35,9 +35,8 @@ tablet
 # part draws the game's toy GPS (Cabin Accessories), its own glass showing its own part of it (crates/shared
 # `glass`); WestPlay only in those four (`SHARED_LAYOUT_TRUCKS`), the toy GPS the game's in every other truck.
 ob-gps            ui/dashboard/gps.dlc_toys.sii
-# The Coaches DLC's Scania Touring and MAN Lion's Coach (2024), whose real ones have CarPlay (owner 2026-11-12;
-# the Volvo 9700's hasn't: the game keeps its screen): each its own script in every interior (computers.sui), on a
-# 512 x 256 surface the mod draws at 1024 x 512, of which their displays show the whole.
+# The Coaches DLC's Scania Touring and MAN Lion's Coach (2024): each interior's computers.sui names its own
+# script on a 512 x 256 surface. The mod draws at 1024 x 512, of which their displays show the whole.
 scania-touring    ui/dashboard/scania_touring_23_gps.sii
 man-lions-24      ui/dashboard/man_lions_24_gps.sii
 man-tgx-2020      ui/dashboard/man_tgx_2020_gps.sii
@@ -56,3 +55,5 @@ vnl               ui/dashboard/volvo_vnl2018_gps.sii
 vnl-new           ui/dashboard/volvo_vnl2025_gps.sii
 # Western Star 57X (every interior), a 1440 x 540 window.
 westernstar-57x   ui/dashboard/westernstar_57x_gps.sii
+# The Coaches DLC's Volvo 9700 DD: its centre screen's script on the factory 1024 x 512 surface.
+volvo-9700-dd     ui/dashboard/volvo_9700_23_gps.sii
