@@ -25,6 +25,7 @@ export const SCREEN_LAYOUT_IDS = [
   'vnl',
   'vnl-new',
   'westernstar-57x',
+  'volvo-9700-dd',
 ] as const
 
 export type ScreenLayoutId = (typeof SCREEN_LAYOUT_IDS)[number]
@@ -65,6 +66,7 @@ const PAGE_HEIGHTS: Partial<Record<ScreenLayoutId, number>> = {
   vnl: 768,
   'vnl-new': 720,
   'westernstar-57x': 480,
+  'volvo-9700-dd': 697,
 }
 
 /** Frame pixels (SCREEN_WIDTH x SCREEN_HEIGHT, as a screen's script and the truck's strip are measured) as the
@@ -231,6 +233,7 @@ const PROFILES: readonly ProfileEntry[] = [
   // (owner 2026-11-12, 13). At 1.2, chosen by eye in the cab preview: three columns of apps. Two sidebar apps (owner
   // 2026-11-13, after seeing three).
   { layout: 'man-lions-24', profile: { name: "MAN Lion's Coach (2024)", oemStrip: null, scale: 1.2, recents: 2 } },
+  { layout: 'volvo-9700-dd', profile: { name: 'Volvo 9700 DD', oemStrip: null, scale: 1.2, recents: 2 } },
     { layout: 'man-tgx-2020', profile: { name: 'MAN TGX 2020', oemStrip: null, scale: 1 } },
 ]
 
